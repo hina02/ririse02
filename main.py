@@ -9,7 +9,7 @@ import logging
 from openai import OpenAI, AsyncOpenAI
 from openai_api.chat import chat, async_chat
 from openai_api.jsonmode import output_json, output_json_to_neo4j
-from openai_api.visual import gpt_4v
+from openai_api.visual import gpt4v
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)s [%(funcName)s]: %(message)s"
@@ -96,21 +96,26 @@ async def output_json_to_neo4j_api(
     return result
 
 
-@app.get("/gpt_4v")
-async def gpt_4v_api(
-    user_message: str,
+from pydantic import BaseModel
+
+class Gpt4vRequest(BaseModel):
+    user_message: str
+    image_urls: list[str] | None = None
+    base64_image_urls: list[str] | None = None
+
+@app.post("/gpt4v")
+async def gpt4v_api(
+    request: Gpt4vRequest,
     client: OpenAIClient = Depends(get_openai_client),
-    image_urls: list[str] | None = None,
-    base64_image_urls: list[str] | None = None,
 ):
     """サンプル画像URL:
     https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/Gfp-wisconsin-madison-the-nature-boardwalk.jpg/2560px-Gfp-wisconsin-madison-the-nature-boardwalk.jpg
     """
-    image_urls = [
-        "https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/Gfp-wisconsin-madison-the-nature-boardwalk.jpg/2560px-Gfp-wisconsin-madison-the-nature-boardwalk.jpg",
-        "https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/Gfp-wisconsin-madison-the-nature-boardwalk.jpg/2560px-Gfp-wisconsin-madison-the-nature-boardwalk.jpg",
-    ]
-    result = gpt_4v(
+    user_message = request.user_message
+    image_urls = request.image_urls
+    base64_image_urls = request.base64_image_urls
+    
+    result = gpt4v(
         user_message,
         client=client.client,
         image_urls=image_urls,
