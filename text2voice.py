@@ -38,7 +38,7 @@ def playVoicePeak(script: str, narrator: str = "Asumi Ririse"):
     exepath = Path(VOICEPEAK_PATH)
     # wav出力先
     temp = str(uuid.uuid4())
-    outpath = Path(f"voice/{temp}.wav")
+    outpath = Path(f"temp/voice/{temp}.wav")
     # 引数を作成
     args = [
         str(exepath),

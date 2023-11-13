@@ -1,6 +1,7 @@
 # add_settings
 image
 voice
+logging
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

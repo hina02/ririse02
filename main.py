@@ -7,7 +7,7 @@ import binascii
 import logging
 from routers.openai_api import openai_api_router
 from watchdog.observers import Observer
-from watch_dog import MyHandler
+# from watch_dog import MyHandler
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)s [%(funcName)s]: %(message)s"

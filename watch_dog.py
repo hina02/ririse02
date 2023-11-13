@@ -5,8 +5,8 @@ import os
 import requests
 from text2voice import get_voice
 
-os.chdir("C:/Users/hiroh/.cursor-tutor/projects/python")
-os.system("python text2voice.py")
+os.chdir("temp/ss")
+os.system("python ../../text2voice.py")
 
 BACKEND_URL = "http://127.0.0.1:8000"
 
