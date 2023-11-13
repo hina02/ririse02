@@ -4,6 +4,7 @@ from openai import OpenAI
 from openai.types.beta.assistant import Assistant  # アシスタントの型
 from openai.types.beta.thread import Thread  # スレッドの型
 from openai.types.beta.threads import ThreadMessage  # メッセージの型
+from openai.resources.files import FileObject
 import os 
 import time
 from datetime import datetime, timedelta, timezone
@@ -15,6 +16,34 @@ openai_api_key: str = os.getenv("OPENAI_API_KEY")
 # AsyncOpenAIで、各クラス同様にある。
 client = OpenAI()
 
+# openai/resources/files.py　が、finetune, assistatnsをサポートするファイルモジュール
+class FileManager:
+    def __init__(self, client: OpenAI):
+        self.client = client
+    
+    def upload_file(self, file_path: str):
+        with open(file_path, "rb") as f:
+            response = self.client.files.create(file=f, purpose="assistants")
+        print(response.model_dump_json())
+        return
+
+    def get_files(self) -> list[FileObject]:
+        files = self.client.files.list(purpose="assistants")
+        return files
+    
+    def get_file(self, file_id: str) -> FileObject:
+        file = self.client.files.retrieve(file_id)
+        return file
+    
+    def delete_file(self, file_id: str):
+        response = self.client.files.delete(file_id)
+        print(response.model_dump_json())
+        return
+    
+file_mgr = FileManager(client)
+    
+# 
+# client.beta.assistants.filesは、fileをassistatnsに紐付ける。
 
 class AssistantManager:
     def __init__(self, client: OpenAI):
@@ -29,17 +58,17 @@ class AssistantManager:
         self.details = self.get_assistants()
 
     # get
-    def get_assistant_ids(self):
+    def get_assistant_ids(self) -> list[str]:
         response = requests.get("https://api.openai.com/v1/assistants?order=desc&limit=20", headers=self.__headers)
         response_data = response.json()["data"]
         assistant_ids = [data["id"] for data in response_data]
         return assistant_ids
 
-    def get_assistant_details(self, asst_id: str):
+    def get_assistant_details(self, asst_id: str) -> Assistant:
         response = requests.get(f"https://api.openai.com/v1/assistants/{asst_id}", headers=self.__headers)
         return response.json()
 
-    def get_assistants(self):
+    def get_assistants(self) -> list[Assistant]:
         asst_ids = self.get_assistant_ids()
         assistants = []
         for asst_id in asst_ids:
@@ -48,7 +77,7 @@ class AssistantManager:
         return assistants
 
     # create
-    def create_assistant(self, name: str, description: str, instructions: str, tools: list[dict] | None = None, file_ids: list[str] | None = None):
+    def create_assistant(self, name: str, description: str, instructions: str, tools: list[dict] | None = None, file_ids: list[str] | None = None) -> Assistant:
         data = {
             "name": name,
             "model": "gpt-4-1106-preview",
@@ -63,7 +92,7 @@ class AssistantManager:
         return assistant
 
     # update
-    def update_assistant(self, asst_id: str, instructions: str, tools: list[dict] | None = None, file_ids: list[str] | None = None):
+    def update_assistant(self, asst_id: str, instructions: str, tools: list[dict] | None = None, file_ids: list[str] | None = None) -> Assistant:
         data = {
             "model": "gpt-4-1106-preview",
             "instructions": instructions,
@@ -78,13 +107,9 @@ class AssistantManager:
     # delete
     def delete_assistant(self, asst_id: str):
         response = requests.delete(f"https://api.openai.com/v1/assistants/{asst_id}", headers=self.__headers)
-        return response
+        print(response.json())
+        return
 
-# モデルファイルの読み取り
-# file = client.files.create(
-#     file=open("speech.py", "rb"),
-#     purpose="assistants"    #fileモジュールは、fine-tuneとassistantsをサポートする模様
-# )
 
 # スレッドの作成
 # Threadsは、Assistantとは独立。AssistantはRun時に指定する。
@@ -109,7 +134,7 @@ class ThreadManager:
             f.write(f"{thread_id}\n")
         return thread_id
 
-    def retrieve_thread(self, thread_id: str):
+    def retrieve_thread(self, thread_id: str) -> Thread:
         thread = self.threads.retrieve(thread_id)
         return thread
 
@@ -163,19 +188,19 @@ class RunManager:
         print(f"message_id: {message.id}")
         return message.id
 
-    def get_messages(self, **kwargs):
+    def get_messages(self, **kwargs) -> list[MessageModel]:
         messages = self.messages.list(thread_id=self.thread_id, **kwargs)
         messages = [extract_message_model(message) for message in messages.data]
         self.details = messages 
         return messages
     
-    def get_latest_message(self):
+    def get_latest_message(self) -> MessageModel:
         messages = self.messages.list(thread_id=self.thread_id)
         message = messages.data[0]
         message_model = extract_message_model(message)
         return message_model
 
-    def retrieve_message(self, message_id: str):
+    def retrieve_message(self, message_id: str) -> MessageModel:
         message = self.messages.retrieve(thread_id=self.thread_id, message_id=message_id)
         # Use the extract_message_model function to create the Pydantic model
         message_model = extract_message_model(message)
@@ -184,7 +209,7 @@ class RunManager:
 
     # Runs
     # エラーとなったrunが詰まるなら、updateの実装を検討する。
-    def create_run(self, **kwargs):
+    def create_run(self, **kwargs) -> str:
         run = self.runs.create(
             thread_id=self.thread_id,
             assistant_id=self.assistant_id,
@@ -200,8 +225,9 @@ class RunManager:
         runs = self.runs.list(thread_id=self.thread_id, **kwargs)
         return runs
 
-    def cycle_retrieve_run(self):
+    def cycle_retrieve_run(self) -> MessageModel:
         """run_idが存在する間、runのstatusを取得し続ける。run_statusがcompletedになったら、run_idを初期化して終了する。"""
+        latest_message = None
         if self.run_id is not None:
             while True:
                 run = self.runs.retrieve(thread_id=self.thread_id, run_id=self.run_id)
@@ -217,19 +243,19 @@ class RunManager:
                 time.sleep(2)  # Check status every 2 seconds
         else:
             print("No active run to retrieve status from.")
-        return 
+        return latest_message
 
 
-assistant_mgr = AssistantManager(client)
-assistant_id = assistant_mgr.details[0]["id"]
-thread_mgr = ThreadManager(client)
-# thread = thread_mgr.create_thread()
-thread_id = "thread_uCoQKyK11SZ0kH4fHPQ4pMJu"
-thread = thread_mgr.retrieve_thread(thread_id)
-print(thread)
+# assistant_mgr = AssistantManager(client)
+# assistant_id = assistant_mgr.details[0]["id"]
+# thread_mgr = ThreadManager(client)
+# # thread = thread_mgr.create_thread()
+# thread_id = "thread_uCoQKyK11SZ0kH4fHPQ4pMJu"
+# thread = thread_mgr.retrieve_thread(thread_id)
+# print(thread)
 
-run_mgr = RunManager(client, thread_id, assistant_id)
+# run_mgr = RunManager(client, thread_id, assistant_id)
 
-run_mgr.create_message("これはテストです。何回目の会話ですか？")
-run_mgr.create_run()
-run_mgr.cycle_retrieve_run()
+# run_mgr.create_message("これはテストです。何回目の会話ですか？")
+# run_mgr.create_run()
+# run_mgr.cycle_retrieve_run()
