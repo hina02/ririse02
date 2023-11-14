@@ -17,31 +17,40 @@ def create_temp_file(data, filename):
     temp_file = NamedTemporaryFile(delete=False)
     temp_file.write(data)
     temp_file.close()
+    if os.path.exists(filename):
+        os.remove(filename)
     os.rename(temp_file.name, filename)
     return filename
 
 
-# update
 @file_router.post("/upload_file/", tags=["files"])
-async def upload_file(
-    file: UploadFile = File(...), client: OpenAI = Depends(get_openai_client)
-) -> str:
+async def upload_files(
+    files: list[UploadFile] = File(...), client: OpenAI = Depends(get_openai_client)
+) -> list[str]:
+    file_ids = []
     try:
-        # 名前を指定するため、一時ファイルを作成し、アップロードされたファイルの内容を書き込む。
-        data = await file.read()
-        temp_file_name = create_temp_file(data, file.filename)
+        for file in files:
+            # ファイルサイズが512MBを超えていないことを確認
+            if file.file._file.tell() > 512 * 1024 * 1024:
+                raise HTTPException(status_code=413, detail="File size exceeds limit")
 
-        # 一時ファイルを読み込み、その内容をOpenAIに渡す
-        with open(temp_file_name, "rb") as f:
-            response = client.files.create(file=f, purpose="assistants")
+            # 名前を指定するため、一時ファイルを作成し、アップロードされたファイルの内容を書き込む。
+            data = await file.read()
+            temp_file_name = create_temp_file(data, file.filename)
 
-        # 一時ファイルを削除
-        os.unlink(temp_file_name)
-        response = response.model_dump()
-        logging.info(response)
-        return response.get("id")
+            try:
+                # 一時ファイルを読み込み、その内容をOpenAIに渡す
+                with open(temp_file_name, "rb") as f:
+                    response = client.files.create(file=f, purpose="assistants")
+
+                response = response.model_dump()
+                logging.info(response)
+                file_ids.append(response.get("id"))
+            finally:
+                os.unlink(temp_file_name)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="File not found")
+    return file_ids
 
 
 @file_router.get("/get_files/", tags=["files"])

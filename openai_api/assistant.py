@@ -8,6 +8,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from pydantic import BaseModel
 
+
 os.environ["OPENAI_API_KEY"] = "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"
 openai_api_key = os.getenv("OPENAI_API_KEY")
 
@@ -27,10 +28,9 @@ class AssistantManager:
             "Authorization": f"Bearer {os.getenv('OPENAI_API_KEY')}",
             "OpenAI-Beta": "assistants=v1",
         }
-        self.details = self.get_assistants()
 
-    # get
-    def get_assistant_ids(self) -> list[str]:
+    # get   # listの取得は、pagenationもあるので、フロントから直接が良さそう。
+    def get_assistants_ids(self) -> list[str]:
         response = requests.get(
             "https://api.openai.com/v1/assistants?order=desc&limit=20",
             headers=self.__headers,
@@ -46,12 +46,12 @@ class AssistantManager:
         return response.json()
 
     def get_assistants(self) -> list[Assistant]:
-        asst_ids = self.get_assistant_ids()
-        assistants = []
-        for asst_id in asst_ids:
-            assistant = self.get_assistant_details(asst_id)
-            assistants.append(assistant)
-        return assistants
+        response = requests.get(
+            "https://api.openai.com/v1/assistants?order=desc&limit=20",
+            headers=self.__headers,
+        )
+        response_data = response.json()["data"]
+        return response_data
 
     # create
     def create_assistant(
@@ -115,13 +115,12 @@ class AssistantManager:
 class ThreadManager:
     def __init__(self, client: OpenAI):
         self.client = client
-        self.threads = client.beta.threads
 
     def create_thread(self, metadata: dict | None = None):
         if metadata is not None:
-            thread = self.threads.create(metadata=metadata)
+            thread = self.client.beta.threads.create(metadata=metadata)
         else:
-            thread = self.threads.create()
+            thread = self.client.beta.threads.create()
 
         thread_id = thread.id
         print(f"thread_id: {thread_id}")
@@ -131,7 +130,7 @@ class ThreadManager:
         return thread_id
 
     def retrieve_thread(self, thread_id: str) -> Thread:
-        thread = self.threads.retrieve(thread_id)
+        thread = self.client.beta.threads.retrieve(thread_id)
         return thread
 
 
@@ -168,16 +167,14 @@ class RunManager:
         self.client = client
         self.thread_id = thread_id
         self.assistant_id = assistant_id
-        self.messages = client.beta.threads.messages
-        self.runs = client.beta.threads.runs
         self.run_id = None  # Activeなrunのid
         self.run_status = None  # latest runのstatus
         # Execute only at instance creation
         self.details = self.get_messages()
 
     # Messages
-    def create_message(self, content: str, role: str = "user", **kwargs):
-        message = self.messages.create(
+    def create_message(self, content: str, role: str = "user", **kwargs) -> str:
+        message = self.client.beta.threads.messages.create(
             thread_id=self.thread_id,
             role=role,
             content=content,  # content of message
@@ -187,19 +184,21 @@ class RunManager:
         return message.id
 
     def get_messages(self, **kwargs) -> list[MessageModel]:
-        messages = self.messages.list(thread_id=self.thread_id, **kwargs)
+        messages = self.client.beta.threads.messages.list(
+            thread_id=self.thread_id, **kwargs
+        )
         messages = [extract_message_model(message) for message in messages.data]
         self.details = messages
         return messages
 
     def get_latest_message(self) -> MessageModel:
-        messages = self.messages.list(thread_id=self.thread_id)
+        messages = self.client.beta.threads.messages.list(thread_id=self.thread_id)
         message = messages.data[0]
         message_model = extract_message_model(message)
         return message_model
 
     def retrieve_message(self, message_id: str) -> MessageModel:
-        message = self.messages.retrieve(
+        message = self.client.beta.threads.messages.retrieve(
             thread_id=self.thread_id, message_id=message_id
         )
         # Use the extract_message_model function to create the Pydantic model
@@ -208,8 +207,9 @@ class RunManager:
 
     # Runs
     # エラーとなったrunが詰まるなら、updateの実装を検討する。
+    # 1回のRunで、複数のメッセージを処理できる。複数のRunは同時に実行できない。
     def create_run(self, **kwargs) -> str:
-        run = self.runs.create(
+        run = self.client.beta.threads.runs.create(
             thread_id=self.thread_id,
             assistant_id=self.assistant_id,
             **kwargs,  # instructions : Override the default system message of the assistant
@@ -221,7 +221,7 @@ class RunManager:
 
     # runデータを取得する。instructions等が含まれる。実質、不要。
     def get_runs(self, **kwargs):
-        runs = self.runs.list(thread_id=self.thread_id, **kwargs)
+        runs = self.client.beta.threads.runs.list(thread_id=self.thread_id, **kwargs)
         return runs
 
     def cycle_retrieve_run(self) -> MessageModel:
@@ -229,7 +229,9 @@ class RunManager:
         latest_message = None
         if self.run_id is not None:
             while True:
-                run = self.runs.retrieve(thread_id=self.thread_id, run_id=self.run_id)
+                run = self.client.beta.threads.runs.retrieve(
+                    thread_id=self.thread_id, run_id=self.run_id
+                )
                 self.run_status = run.status
                 print(f"run_status: {self.run_status}")
                 # run_idを初期化して終了する。
@@ -245,8 +247,6 @@ class RunManager:
         return latest_message
 
 
-# assistant_mgr = AssistantManager(client)
-# assistant_id = assistant_mgr.details[0]["id"]
 # thread_mgr = ThreadManager(client)
 # # thread = thread_mgr.create_thread()
 # thread_id = "thread_uCoQKyK11SZ0kH4fHPQ4pMJu"
@@ -256,5 +256,6 @@ class RunManager:
 # run_mgr = RunManager(client, thread_id, assistant_id)
 
 # run_mgr.create_message("これは何時の質問ですか？")
+# run_mgr.create_message("これは何回目の質問ですか？")
 # run_mgr.create_run()
 # run_mgr.cycle_retrieve_run()

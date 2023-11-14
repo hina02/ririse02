@@ -7,6 +7,8 @@ import binascii
 import logging
 from routers.openai_api import openai_api_router
 from routers.file import file_router
+from routers.assistant import assistant_router
+from routers.run import run_router
 from watchdog.observers import Observer
 
 logging.basicConfig(
@@ -42,6 +44,8 @@ async def app_lifespan(app: FastAPI):
 app = FastAPI(lifespan=app_lifespan)
 app.include_router(openai_api_router)
 app.include_router(file_router)
+app.include_router(assistant_router)
+app.include_router(run_router)
 
 # セッションを有効にするための設定
 secret_key = binascii.hexlify(os.urandom(24)).decode()
