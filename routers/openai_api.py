@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 import uuid
-import json
 import logging
 from openai import OpenAI, AsyncOpenAI
 from openai_api.chat import chat, async_chat
@@ -38,14 +37,14 @@ def get_openai_client(request: Request):
     if user_id not in clients:
         clients[user_id] = OpenAIClient(user_id)
         logging.info(f"initialize user_id: {user_id}")
-    return clients[user_id]
+    return clients[user_id].client
 
 
 @openai_api_router.get("/chat")
 def chat_api(
     user_message: str, client: OpenAIClient = Depends(get_openai_client)
 ) -> str:
-    result = chat("initialize chat.", user_message, client=client.client)
+    result = chat("initialize chat.", user_message, client=client)
     logging.info(f"User ID: {client.user_id}")
     return result
 
@@ -65,7 +64,7 @@ async def async_chat_api(
 async def output_json_api(
     user_message: str, client: OpenAIClient = Depends(get_openai_client)
 ):
-    result = output_json(user_message, client=client.client)
+    result = output_json(user_message, client=client)
     return result  # DOCSで確認したい場合は、json.loads(result)
 
 
@@ -75,7 +74,7 @@ async def output_json_to_neo4j_api(
 ):
     """サンプルテキスト:
     「彩澄りりせ」は、ぴた声シリーズのキャラクターとして誕生した16歳の女の子です。彩澄しゅおのお姉さんです。"""
-    result = output_json_to_neo4j(user_message, client=client.client)
+    result = output_json_to_neo4j(user_message, client=client)
     return result
 
 
@@ -93,7 +92,7 @@ async def gpt4v_api(
 
     result = gpt4v(
         user_message,
-        client=client.client,
+        client=client,
         image_urls=image_urls,
         base64_image_urls=base64_image_urls,
     )

@@ -64,15 +64,19 @@ def playVoicePeak(script: str, narrator: str = "Asumi Ririse"):
 
 from pydub import AudioSegment
 
+
 def adjust_volume(file_path: str, volume: float):
     sound = AudioSegment.from_file(file_path)
     adjusted_sound = sound + volume
     adjusted_sound.export(file_path, format="wav")
 
+
 import time
 import re
 import threading
 import queue
+
+
 def play_voice_file(voice_queue):
     while True:
         file_path = voice_queue.get()  # キューからファイルパスを取得
@@ -87,10 +91,9 @@ def play_voice_file(voice_queue):
         voice_queue.task_done()  # キューの処理が完了したことを示す
 
 
-
 def get_voice(text: str):
     # テキストを句読点で区切る
-    chunks = re.split('[。！？]', text)
+    chunks = re.split("[。！？]", text)
     file_paths = []
 
     voice_queue = queue.Queue()  # 共有キューの作成
@@ -102,7 +105,7 @@ def get_voice(text: str):
     for chunk in chunks:
         if chunk:
             # playVoicePeak は自前で定義する必要がある
-            file_path = playVoicePeak(script=chunk, narrator="Asumi Ririse")  
+            file_path = playVoicePeak(script=chunk, narrator="Asumi Ririse")
             print(file_path)
             file_paths.append(file_path)
 

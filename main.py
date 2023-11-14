@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, Request
+from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from starlette.middleware.sessions import SessionMiddleware
 from contextlib import asynccontextmanager
@@ -6,8 +6,8 @@ import os
 import binascii
 import logging
 from routers.openai_api import openai_api_router
+from routers.file import file_router
 from watchdog.observers import Observer
-# from watch_dog import MyHandler
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)s [%(funcName)s]: %(message)s"
@@ -24,6 +24,8 @@ development_flag = True  # 開発中はこのフラグをTrueに設定
 async def app_lifespan(app: FastAPI):
     global observer
     if not development_flag:  # 開発中は監視を行わない
+        from watch_dog import MyHandler
+
         folder_to_track = "folder"
         event_handler = MyHandler()
         observer = Observer()
@@ -39,6 +41,7 @@ async def app_lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=app_lifespan)
 app.include_router(openai_api_router)
+app.include_router(file_router)
 
 # セッションを有効にするための設定
 secret_key = binascii.hexlify(os.urandom(24)).decode()
