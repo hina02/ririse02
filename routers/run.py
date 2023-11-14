@@ -11,7 +11,10 @@ run_managers: dict = {}
 
 
 def get_run_manager(
-    request: Request, thread_id: str, assistant_id: str, client: OpenAI = Depends(get_openai_client)
+    request: Request,
+    thread_id: str,
+    assistant_id: str,
+    client: OpenAI = Depends(get_openai_client),
 ) -> RunManager:
     if "user_id" not in request.session:
         request.session["user_id"] = str(uuid.uuid4())  # Generate a new user_id

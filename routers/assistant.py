@@ -1,76 +1,67 @@
-from fastapi import APIRouter, UploadFile, File, Depends, Body, HTTPException
+from fastapi import APIRouter, UploadFile, File, Depends, Form
 from openai import OpenAI
 from openai_api.assistant import AssistantManager, ThreadManager
-from openai.types.beta.assistant_create_params import ToolAssistantToolsFunctionFunction
 from routers.file import upload_files
 from routers.openai_api import get_openai_client
-import json
-
 
 assistant_router = APIRouter()
 
 
-def validate_function(function: dict | None):
-    if function is not None:
-        if not isinstance(function, ToolAssistantToolsFunctionFunction):
-            raise HTTPException(
-                status_code=400,
-                detail="The 'function' key must be followed ToolAssistantToolsFunctionFunction",
-            )
-    return function
+async def generate_tools_and_files(
+    retrieval: bool,
+    code_interpreter: bool,
+    function: dict,
+    uploaded_files: list[UploadFile],
+    client: OpenAI,
+):
+    tools = []
+    if retrieval:
+        tools.append({"type": "retrieval"})
+    if code_interpreter:
+        tools.append({"type": "code_interpreter"})
+    if function:
+        tools.append({"type": "function", "function": function})
 
+    if uploaded_files and (retrieval | code_interpreter):
+        file_ids = await upload_files(uploaded_files, client)
+    else:
+        file_ids = None
 
-def validate_tools(tools: str | None):
-    try:
-        tools = json.loads(tools) if tools else None
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=400, detail="Invalid JSON format in tools")
-
-    valid_types = ["code_interpreter", "retrieval", "function"]
-    if tools is not None:
-        for tool in tools:
-            if not isinstance(tool, dict):
-                raise HTTPException(
-                    status_code=400, detail="Each tool must be a dictionary"
-                )
-            if tool.get("type") not in valid_types:
-                raise HTTPException(
-                    status_code=400, detail=f"Invalid tool type: {tool.get('type')}"
-                )
-            if tool.get("type") == "function":
-                validate_function(tool.get("function"))
-    return tools
+    return tools, file_ids
 
 
 # Assistantの作成、更新、削除
 @assistant_router.post("/create_assistant", tags=["assistants"])
 async def create_assistant(
-    name: str,
-    description: str,
-    instructions: str,
-    tools: str = Body(None),
+    name: str = Form(...),
+    description: str = Form(...),
+    instructions: str = Form(...),
+    retrieval: bool = Form(False),
+    code_interpreter: bool = Form(False),
+    function: str = Form(None),
     uploaded_files: list[UploadFile] = File(None),
     client: OpenAI = Depends(get_openai_client),
 ):
-    tools = validate_tools(tools)
-    if upload_files and any(
-        tool["type"] in ["code_interpreter", "retrieval"] for tool in tools
-    ):
-        file_ids = await upload_files(uploaded_files, client)
-    else:
-        file_ids = None
+    tools, file_ids = await generate_tools_and_files(
+        retrieval, code_interpreter, function, uploaded_files, client
+    )
+
+    data = {
+        "name": name,
+        "description": description,
+        "instructions": instructions,
+    }
+    if tools:
+        data["tools"] = tools
+    if file_ids:
+        data["file_ids"] = file_ids
 
     assistant_manager = AssistantManager(client)
-    assistant = assistant_manager.create_assistant(
-        name=name,
-        description=description,
-        instructions=instructions,
-        tools=tools,
-        file_ids=file_ids,
-    )
+    assistant = assistant_manager.create_assistant(**data)
     return assistant
 
 
+# fileはfile_idsで返ってくるため、get_filesと照らし合わせる必要がある。
 @assistant_router.get("/get_assistants", tags=["assistants"])
 async def get_assistants(client: OpenAI = Depends(get_openai_client)):
     assistant_manager = AssistantManager(client)
@@ -81,23 +72,28 @@ async def get_assistants(client: OpenAI = Depends(get_openai_client)):
 @assistant_router.post("/update_assistant/{asst_id}", tags=["assistants"])
 async def update_assistant(
     asst_id: str,
-    instructions: str,
-    tools: str = Body(None),
+    instructions: str = Form(None),
+    retrieval: bool = Form(False),
+    code_interpreter: bool = Form(False),
+    function: str = Form(None),
     uploaded_files: list[UploadFile] = File(None),
     client: OpenAI = Depends(get_openai_client),
 ):
-    tools = validate_tools(tools)
-    if upload_files and any(
-        tool["type"] in ["code_interpreter", "retrieval"] for tool in tools
-    ):
-        file_ids = await upload_files(uploaded_files, client)
-    else:
-        file_ids = None
+    tools, file_ids = await generate_tools_and_files(
+        retrieval, code_interpreter, function, uploaded_files, client
+    )
+
+    data = {
+        "asst_id": asst_id,
+        "instructions": instructions,
+    }
+    if tools:
+        data["tools"] = tools
+    if file_ids:
+        data["file_ids"] = file_ids
 
     assistant_manager = AssistantManager(client)
-    assistant = assistant_manager.update_assistant(
-        asst_id=asst_id, instructions=instructions, tools=tools, file_ids=file_ids
-    )
+    assistant = assistant_manager.update_assistant(**data)
     return assistant
 
 

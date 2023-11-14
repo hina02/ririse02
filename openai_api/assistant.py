@@ -56,41 +56,21 @@ class AssistantManager:
     # create
     def create_assistant(
         self,
-        name: str,
-        description: str,
-        instructions: str,
-        tools: list[dict] | None = None,
-        file_ids: list[str] | None = None,
+        **kwargs,
     ) -> Assistant:
-        data = {
-            "name": name,
-            "model": "gpt-4-1106-preview",
-            "description": description,
-            "instructions": instructions,
-        }
-        if tools is not None:
-            data["tools"] = tools
-        if file_ids is not None:
-            data["file_ids"] = file_ids
-        assistant = self.assistants.create(**data)
+        assistant = self.assistants.create(model="gpt-4-1106-preview", **kwargs)
         return assistant
 
     # update
     def update_assistant(
         self,
         asst_id: str,
-        instructions: str,
-        tools: list[dict] | None = None,
-        file_ids: list[str] | None = None,
+        **kwargs,
     ) -> Assistant:
         data = {
             "model": "gpt-4-1106-preview",
-            "instructions": instructions,
         }
-        if tools is not None:
-            data["tools"] = tools
-        if file_ids is not None:
-            data["file_ids"] = file_ids
+        data.update(kwargs)
         response = requests.post(
             f"https://api.openai.com/v1/assistants/{asst_id}",
             headers=self.__headers,
@@ -125,7 +105,7 @@ class ThreadManager:
         thread_id = thread.id
         print(f"thread_id: {thread_id}")
         # thread_idをテキストファイルに保存
-        with open("../logging/thread_ids.txt", "a") as f:
+        with open("logging/thread_ids.txt", "a") as f:
             f.write(f"{thread_id}\n")
         return thread_id
 
