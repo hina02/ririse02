@@ -1,5 +1,6 @@
 import asyncio
 import time
+import logging
 
 
 def atimer(func):
@@ -7,7 +8,7 @@ def atimer(func):
         start = time.time()
         result = await func(*args, **kwargs)
         end = time.time()
-        print(f"Time: {end - start} seconds")
+        logging.info(f"Time: {end - start} seconds")
         return result
 
     return wrapper
@@ -18,7 +19,7 @@ def timer(func):
         start_time = time.time()
         result = func(*args, **kwargs)
         end_time = time.time()
-        print(
+        logging.info(
             f"Function {func.__name__} took {round(end_time - start_time, 4)} seconds to run."
         )
         return result

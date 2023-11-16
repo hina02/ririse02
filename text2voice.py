@@ -1,9 +1,12 @@
-import os
 import uuid
 import subprocess
 from pathlib import Path
 import subprocess
-
+from pydub import AudioSegment
+import re
+import threading
+import queue
+import logging
 
 VOICEPEAK_PATH = "C:/Program Files/VOICEPEAK/voicepeak.exe"
 
@@ -57,24 +60,15 @@ def playVoicePeak(script: str, narrator: str = "Asumi Ririse"):
         "--pose",
         f"{pose}",
     ]
-    print(args)
+    logging.info(args)
     subprocess.run(args)
     return outpath
-
-
-from pydub import AudioSegment
 
 
 def adjust_volume(file_path: str, volume: float):
     sound = AudioSegment.from_file(file_path)
     adjusted_sound = sound + volume
     adjusted_sound.export(file_path, format="wav")
-
-
-import time
-import re
-import threading
-import queue
 
 
 def play_voice_file(voice_queue):
@@ -106,7 +100,7 @@ def get_voice(text: str):
         if chunk:
             # playVoicePeak は自前で定義する必要がある
             file_path = playVoicePeak(script=chunk, narrator="Asumi Ririse")
-            print(file_path)
+            logging.info(file_path)
             file_paths.append(file_path)
 
             voice_queue.put(file_path)  # ファイルパスをキューに追加

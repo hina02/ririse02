@@ -1,3 +1,4 @@
+import logging
 from openai import OpenAI
 from models import ChatPrompt
 
@@ -48,5 +49,5 @@ def output_json_to_neo4j(
         seed=seed,  # シード値固定した方が安定するかもしれない。
     )
     response_text = response.choices[0].message.content
-    print(response_text)
+    logging.info(response_text)
     return response_text

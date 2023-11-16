@@ -1,6 +1,6 @@
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
-import time
+import logging
 import os
 import requests
 from text2voice import get_voice
@@ -35,13 +35,13 @@ class MyHandler(FileSystemEventHandler):
                 (".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".gif")
             ):
                 escaped_path = file_path.replace("\\", "\\\\")
-                print(f"Event type: {event.event_type}  path : {event.src_path}")
+                logging.info(f"Event type: {event.event_type}  path : {event.src_path}")
                 try:
                     response = gpt4v_request(
                         user_message=file_name, base64_image_urls=[escaped_path]
                     )
                     response.raise_for_status()
-                    print(response.text)
+                    logging.info(response.text)
                     get_voice(response.text)
                 except requests.HTTPError as err:
-                    print(f"HTTP error occurred: {err}")
+                    logging.info(f"HTTP error occurred: {err}")

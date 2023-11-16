@@ -5,7 +5,8 @@ from openai.types.beta.thread import Thread  # スレッドの型
 from openai.types.beta.threads import ThreadMessage  # メッセージの型
 import os
 import time
-from datetime import datetime, timedelta, timezone
+import logging
+from datetime import datetime
 from pydantic import BaseModel
 
 
@@ -39,9 +40,9 @@ class AssistantManager:
         assistant_ids = [data["id"] for data in response_data]
         return assistant_ids
 
-    def get_assistant_details(self, asst_id: str) -> Assistant:
+    def get_assistant_details(self, assistant_id: str) -> Assistant:
         response = requests.get(
-            f"https://api.openai.com/v1/assistants/{asst_id}", headers=self.__headers
+            f"https://api.openai.com/v1/assistants/{assistant_id}", headers=self.__headers
         )
         return response.json()
 
@@ -58,32 +59,30 @@ class AssistantManager:
         self,
         **kwargs,
     ) -> Assistant:
-        assistant = self.assistants.create(model="gpt-4-1106-preview", **kwargs)
+        assistant = self.assistants.create(**kwargs)
         return assistant
 
     # update
     def update_assistant(
         self,
-        asst_id: str,
+        assistant_id: str,
         **kwargs,
     ) -> Assistant:
-        data = {
-            "model": "gpt-4-1106-preview",
-        }
+        data = {}
         data.update(kwargs)
         response = requests.post(
-            f"https://api.openai.com/v1/assistants/{asst_id}",
+            f"https://api.openai.com/v1/assistants/{assistant_id}",
             headers=self.__headers,
             json=data,
         )
         return response.json()
 
     # delete
-    def delete_assistant(self, asst_id: str):
+    def delete_assistant(self, assistant_id: str):
         response = requests.delete(
-            f"https://api.openai.com/v1/assistants/{asst_id}", headers=self.__headers
+            f"https://api.openai.com/v1/assistants/{assistant_id}", headers=self.__headers
         )
-        print(response.json())
+        logging.info(response.json())
         return
 
 
@@ -103,7 +102,7 @@ class ThreadManager:
             thread = self.client.beta.threads.create()
 
         thread_id = thread.id
-        print(f"thread_id: {thread_id}")
+        logging.info(f"thread_id: {thread_id}")
         # thread_idをテキストファイルに保存
         with open("logging/thread_ids.txt", "a") as f:
             f.write(f"{thread_id}\n")
@@ -119,21 +118,18 @@ class MessageModel(BaseModel):
     id: str
     role: str
     content: str
-    created_at: datetime
+    created_at: int  # Unix timestamp (in seconds)
     annotations: list[str] | None = None
     file_ids: list[str] | None = None
     metadata: dict | None = None
 
 
 def extract_message_model(message: ThreadMessage):
-    JST = timezone(timedelta(hours=+9), "JST")
-    created_at_jst = datetime.fromtimestamp(message.created_at).astimezone(JST)
-
     message_model = MessageModel(
         id=message.id,
         role=message.role,
         content=message.content[0].text.value,
-        created_at=created_at_jst,
+        created_at=message.created_at,
         annotations=message.content[0].text.annotations or None,
         file_ids=message.file_ids or None,
         metadata=message.metadata or None,
@@ -143,10 +139,9 @@ def extract_message_model(message: ThreadMessage):
 
 # create and run は、threadの新規作成を同時に行う。
 class RunManager:
-    def __init__(self, client: OpenAI, thread_id: str, assistant_id: str):
+    def __init__(self, client: OpenAI, thread_id: str):
         self.client = client
         self.thread_id = thread_id
-        self.assistant_id = assistant_id
         self.run_id = None  # Activeなrunのid
         self.run_status = None  # latest runのstatus
         # Execute only at instance creation
@@ -160,7 +155,7 @@ class RunManager:
             content=content,  # content of message
             **kwargs,
         )
-        print(f"message_id: {message.id}")
+        logging.info(f"message_id: {message.id}")
         return message.id
 
     def get_messages(self, **kwargs) -> list[MessageModel]:
@@ -186,16 +181,16 @@ class RunManager:
         return message_model
 
     # Runs
-    # エラーとなったrunが詰まるなら、updateの実装を検討する。
+    # エラーとなったrunが詰まるなら、update, cancel, submit_tool_outputsの実装を検討する。
     # 1回のRunで、複数のメッセージを処理できる。複数のRunは同時に実行できない。
-    def create_run(self, **kwargs) -> str:
+    def create_run(self, assistant_id: str, **kwargs) -> str:
         run = self.client.beta.threads.runs.create(
             thread_id=self.thread_id,
-            assistant_id=self.assistant_id,
+            assistant_id=assistant_id,
             **kwargs,  # instructions : Override the default system message of the assistant
         )
         run_id = run.id
-        print(f"run_id: {run_id}")
+        logging.info(f"run_id: {run_id}")
         self.run_id = run_id
         return run_id
 
@@ -213,17 +208,17 @@ class RunManager:
                     thread_id=self.thread_id, run_id=self.run_id
                 )
                 self.run_status = run.status
-                print(f"run_status: {self.run_status}")
+                logging.info(f"run_status: {self.run_status}")
                 # run_idを初期化して終了する。
                 if self.run_status in ["completed", "expired", "failed", "timed_out"]:
                     self.run_id = None
                     # Retrieve the latest message when the run is completed
                     latest_message = self.retrieve_message(self.get_latest_message().id)
-                    print(f"Latest message: {latest_message}")
+                    logging.info(f"Latest message: {latest_message}")
                     break
                 time.sleep(2)  # Check status every 2 seconds
         else:
-            print("No active run to retrieve status from.")
+            logging.info("No active run to retrieve status from.")
         return latest_message
 
 
@@ -233,9 +228,9 @@ class RunManager:
 # thread = thread_mgr.retrieve_thread(thread_id)
 # print(thread)
 
-# run_mgr = RunManager(client, thread_id, assistant_id)
+# run_mgr = RunManager(client, thread_id)
 
 # run_mgr.create_message("これは何時の質問ですか？")
 # run_mgr.create_message("これは何回目の質問ですか？")
-# run_mgr.create_run()
+# run_mgr.create_run(assistant_id="asst_lpqx1KFftad7N2NKxjDLd8tw")
 # run_mgr.cycle_retrieve_run()

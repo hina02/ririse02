@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from openai import OpenAI, AsyncOpenAI
 from models import ChatPrompt
 from utils.common import timer, atimer
@@ -54,7 +55,6 @@ def seed_chat(
     response_text = response.choices[0].message
     system_fingerprint = response.system_fingerprint  # 足跡の取得
     memory.append(response_text.content)
-    print(system_fingerprint)
     return response
 
 
@@ -83,4 +83,4 @@ async def _achat(
     chat_completion = await async_client.chat.completions.create(
         model="gpt-3.5-turbo", messages=messages
     )
-    print(chat_completion.choices[0].message.content)
+    logging.info(chat_completion.choices[0].message.content)
