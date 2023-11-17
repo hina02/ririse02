@@ -51,7 +51,7 @@ def create_message_and_run(
     assistant_id: str,
     content: str = Query(...),
     run_manager: RunManager = Depends(get_run_manager),
-) -> str:
+):
     try:
         run_manager.create_message(content=content)
         run_manager.create_run(assistant_id)
@@ -59,13 +59,13 @@ def create_message_and_run(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-# runを待機して、最新のメッセージを返す
-@run_router.get("/retrieve_run_result/{thread_id}}", tags=["runs"])
-def retrieve_run_result(
+# runを待機して、run_statusを返す
+@run_router.get("/cycle_retrieve_run/{thread_id}}", tags=["runs"])
+def cycle_retrieve_run(
     run_manager: RunManager = Depends(get_run_manager),
-) -> MessageModel | None:
-    messages = run_manager.cycle_retrieve_run()
-    return messages
+) -> str:
+    run_status = run_manager.cycle_retrieve_run()
+    return run_status
 
 
 @run_router.get("/get_messages/{thread_id}", tags=["runs"])

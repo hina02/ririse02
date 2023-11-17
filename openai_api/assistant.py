@@ -6,9 +6,8 @@ from openai.types.beta.threads import ThreadMessage  # メッセージの型
 import os
 import time
 import logging
-from datetime import datetime
-from pydantic import BaseModel
-
+import json
+from models.thread import MetadataModel, ThreadModel, MessageModel
 
 os.environ["OPENAI_API_KEY"] = "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"
 openai_api_key = os.getenv("OPENAI_API_KEY")
@@ -95,39 +94,32 @@ class ThreadManager:
     def __init__(self, client: OpenAI):
         self.client = client
 
-    def create_thread(self, metadata: dict | None = None):
-        if metadata is not None:
-            thread = self.client.beta.threads.create(metadata=metadata)
-        else:
-            thread = self.client.beta.threads.create()
-
-        thread_id = thread.id
-        logging.info(f"thread_id: {thread_id}")
-        # thread_idをテキストファイルに保存
-        with open("logging/thread_ids.txt", "a") as f:
-            f.write(f"{thread_id}\n")
-        return thread_id
+    def create_thread(self, metadata: MetadataModel) -> ThreadModel:
+        thread = self.client.beta.threads.create(metadata=metadata)
+        
+        # スレッドモデルを作成して保存
+        thread_model = ThreadModel(
+            thread_id=thread.id,
+            created_at=thread.created_at,
+            metadata=thread.metadata,
+        )
+        logging.info(f"thread_model: {thread_model}")
+        # スレッドモデルをJSON Lineファイルに保存
+        with open("logging/thread_models.jsonl", "a") as f:
+            f.write(json.dumps(thread_model.model_dump()) + "\n")
+    
+        return thread_model
 
     def retrieve_thread(self, thread_id: str) -> Thread:
         thread = self.client.beta.threads.retrieve(thread_id)
         return thread
 
 
-# Messageのモデルと変換関数
-class MessageModel(BaseModel):
-    id: str
-    role: str
-    content: str
-    created_at: int  # Unix timestamp (in seconds)
-    annotations: list[str] | None = None
-    file_ids: list[str] | None = None
-    metadata: dict | None = None
-
-
 def extract_message_model(message: ThreadMessage):
     message_model = MessageModel(
         id=message.id,
         role=message.role,
+        assistant_id=message.assistant_id or None,
         content=message.content[0].text.value,
         created_at=message.created_at,
         annotations=message.content[0].text.annotations or None,
@@ -199,9 +191,8 @@ class RunManager:
         runs = self.client.beta.threads.runs.list(thread_id=self.thread_id, **kwargs)
         return runs
 
-    def cycle_retrieve_run(self) -> MessageModel:
+    def cycle_retrieve_run(self) -> str:
         """run_idが存在する間、runのstatusを取得し続ける。run_statusがcompletedになったら、run_idを初期化して終了する。"""
-        latest_message = None
         if self.run_id is not None:
             while True:
                 run = self.client.beta.threads.runs.retrieve(
@@ -212,14 +203,15 @@ class RunManager:
                 # run_idを初期化して終了する。
                 if self.run_status in ["completed", "expired", "failed", "timed_out"]:
                     self.run_id = None
-                    # Retrieve the latest message when the run is completed
-                    latest_message = self.retrieve_message(self.get_latest_message().id)
-                    logging.info(f"Latest message: {latest_message}")
+                    # # Retrieve the latest message when the run is completed
+                    # latest_message = self.retrieve_message(self.get_latest_message().id)
+                    # logging.info(f"Latest message: {latest_message}")
                     break
                 time.sleep(2)  # Check status every 2 seconds
         else:
             logging.info("No active run to retrieve status from.")
-        return latest_message
+            return "empty"
+        return self.run_status
 
 
 # thread_mgr = ThreadManager(client)

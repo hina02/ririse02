@@ -78,13 +78,3 @@ def read_root():
         </body>
     </html>
     """
-
-
-# logging\thread_ids.txtに保存されたthread_idを取得する
-@app.get("/get_thread_ids", tags=["threads"])
-def get_thread_ids():
-    thread_ids = []
-    with open("logging/thread_ids.txt", "r") as f:
-        for line in f:
-            thread_ids.append(line.strip())
-    return thread_ids

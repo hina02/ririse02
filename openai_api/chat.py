@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from openai import OpenAI, AsyncOpenAI
-from models import ChatPrompt
+from models.chat import ChatPrompt
 from utils.common import timer, atimer
 
 

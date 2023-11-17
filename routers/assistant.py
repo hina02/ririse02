@@ -1,10 +1,11 @@
-from fastapi import APIRouter, UploadFile, File, Depends, Form
+from fastapi import APIRouter, UploadFile, File, Depends, Form, Body
 from typing import Literal
 import json
 from openai import OpenAI
 from openai_api.assistant import AssistantManager, ThreadManager
 from routers.file import upload_files
 from routers.openai_api import get_openai_client
+from models.thread import MetadataModel, ThreadModel
 
 assistant_router = APIRouter()
 
@@ -46,9 +47,8 @@ async def create_assistant(
     metadata: str = Form(None),
     client: OpenAI = Depends(get_openai_client),
 ):
-    tools, file_ids = await generate_tools_and_files(
-        retrieval, code_interpreter, function, uploaded_files, client
-    )
+    """metadata = {"tags": []} 16keyまで"""
+    tools, file_ids = await generate_tools_and_files(retrieval, code_interpreter, function, uploaded_files, client)
 
     if metadata is not None:
         metadata = json.loads(metadata)
@@ -76,7 +76,7 @@ async def create_assistant(
 async def get_assistants(client: OpenAI = Depends(get_openai_client)):
     assistant_manager = AssistantManager(client)
     assistants = assistant_manager.get_assistants()
-    
+
     assistants = [{"assistant_id": asst["id"], "name": asst["name"], "description": asst["description"]} for asst in assistants]
     return assistants
 
@@ -91,6 +91,7 @@ async def get_assistant(assistant_id: str, client: OpenAI = Depends(get_openai_c
 @assistant_router.post("/update_assistant/{assistant_id}", tags=["assistants"])
 async def update_assistant(
     assistant_id: str,
+    name: str = Form(None),
     description: str = Form(None),
     model: Literal["gpt-4-1106-preview", "gpt-3.5-turbo-1106", "gpt-3.5-turbo-16k"] = Form(None),
     instructions: str = Form(None),
@@ -101,15 +102,15 @@ async def update_assistant(
     metadata: str = Form(None),
     client: OpenAI = Depends(get_openai_client),
 ):
-    tools, file_ids = await generate_tools_and_files(
-        retrieval, code_interpreter, function, uploaded_files, client
-    )
+    tools, file_ids = await generate_tools_and_files(retrieval, code_interpreter, function, uploaded_files, client)
 
     if metadata is not None:
         metadata = json.loads(metadata)
     data = {
         "assistant_id": assistant_id,
     }
+    if name is not None:
+        data["name"] = name
     if description is not None:
         data["description"] = description
     if model is not None:
@@ -136,16 +137,29 @@ async def delete_assistant(assistant_id: str, client: OpenAI = Depends(get_opena
 
 # Threadの作成、取得
 # 別途、Thread idの保存方法を検討し、クラスに渡す。
-@assistant_router.post("/create_thread/{assistant_id}", tags=["threads"])
+@assistant_router.post("/create_thread", tags=["threads"])
 async def create_thread(
-    metadata: dict | None = None,
+    metadata: MetadataModel = Body(...),
     client: OpenAI = Depends(get_openai_client),
 ):
-    """metadata = {"title" : title, "description" : description} 16keyまで"""
+    """metadata = {"name" : name, "description" : description, "tags": []} 16keyまで"""
     thread_manager = ThreadManager(client)
     thread_id = thread_manager.create_thread(metadata=metadata)
     return thread_id
 
+
+# logging\thread_models.jsonlに保存されたthreadを取得する
+@assistant_router.get("/get_threads", tags=["threads"])
+def get_threads():
+    threads = []
+    with open("logging/thread_models.jsonl", "r") as f:
+        for line in f:
+            thread_model = ThreadModel.model_validate_json(line.strip())
+            # 新しい辞書を作成し、スレッドモデルのデータとメタデータを追加
+            thread_dict = {**thread_model.model_dump(), **thread_model.metadata.model_dump()}
+            thread_dict.pop("metadata")
+            threads.append(thread_dict)
+    return threads
 
 @assistant_router.get("/get_thread/{thread_id}", tags=["threads"])
 async def get_thread(
