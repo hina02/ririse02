@@ -4,12 +4,15 @@ from starlette.middleware.sessions import SessionMiddleware
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 import os
+import config
 import binascii
 import logging
 from routers.openai_api import openai_api_router
 from routers.file import file_router
 from routers.assistant import assistant_router
 from routers.run import run_router
+from routers.websocket import wb_router
+from routers.neo4j import neo4j_router
 from watchdog.observers import Observer
 
 logging.basicConfig(
@@ -43,10 +46,14 @@ async def app_lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=app_lifespan)
+# OpenAI Assistant Routers
 app.include_router(openai_api_router)
 app.include_router(file_router)
 app.include_router(assistant_router)
 app.include_router(run_router)
+# Websocket Routers
+app.include_router(wb_router)
+app.include_router(neo4j_router)
 
 # CORSミドルウェアの追加
 origins = [

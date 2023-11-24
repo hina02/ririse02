@@ -2,6 +2,9 @@
 image
 voice
 logging
+poetry.lock
+pyvenv.cfg
+cache
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
