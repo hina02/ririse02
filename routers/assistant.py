@@ -59,6 +59,7 @@ def manage_assistant_data(data: AssistantModel, assistant_id: str = None):
         "instructions": data.instructions,
         "metadata": {"tags": json.dumps(data.tags)} if data.tags else None,
         "tools": tools if tools else None,
+        "file_ids": data.file_ids if data.file_ids else None,
     }
 
     # Noneの値を持つキーを削除
@@ -158,3 +159,13 @@ async def get_thread(
     thread_manager = ThreadManager(client)
     thread = thread_manager.retrieve_thread(thread_id=thread_id)
     return thread
+
+
+# delete thread
+@assistant_router.delete("/delete_thread/{thread_id}", tags=["threads"])
+async def delete_thread(
+    thread_id: str,
+    client: OpenAI = Depends(get_openai_client),
+):
+    thread_manager = ThreadManager(client)
+    thread_manager.delete_thread(thread_id=thread_id)

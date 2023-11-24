@@ -116,6 +116,21 @@ class ThreadManager:
     def retrieve_thread(self, thread_id: str) -> Thread:
         thread = self.client.beta.threads.retrieve(thread_id)
         return thread
+    
+    # thread_models.jsonlから、threadを削除する。
+    def delete_thread(self, thread_id: str):
+        with open("logging/thread_models.jsonl", "r") as f:
+            lines = f.readlines()
+        # ファイルを開き、thread_idが一致する行を取り除く。
+        new_lines = []
+        for line in lines:
+            thread_model = ThreadModel.model_validate_json(line.strip())
+            if thread_model.thread_id != thread_id:
+                new_lines.append(line)
+        # ファイルを上書きする
+        with open("logging/thread_models.jsonl", "w") as f:
+            for line in new_lines:
+                f.write(line)
 
 
 def extract_message_model(message: ThreadMessage):

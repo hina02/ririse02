@@ -23,7 +23,7 @@ def create_temp_file(data, filename):
     return filename
 
 
-@file_router.post("/upload_file/", tags=["files"])
+@file_router.post("/upload_files", tags=["files"])
 async def upload_files(
     files: list[UploadFile] = File(...), client: OpenAI = Depends(get_openai_client)
 ) -> list[str]:
@@ -53,19 +53,11 @@ async def upload_files(
     return file_ids
 
 
-@file_router.get("/get_files/", tags=["files"])
+@file_router.get("/get_files", tags=["files"])
 async def get_files(client: OpenAI = Depends(get_openai_client)) -> list[FileObject]:
     """files.data[0]で一つのfileObjectが取得できる"""
     files = client.files.list(purpose="assistants")
     return files
-
-
-@file_router.get("/get_file/{file_id}", tags=["files"])
-async def get_file(
-    file_id: str, client: OpenAI = Depends(get_openai_client)
-) -> FileObject:
-    file = client.files.retrieve(file_id)
-    return file
 
 
 @file_router.delete("/delete_file/{file_id}", tags=["files"])
