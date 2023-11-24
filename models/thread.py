@@ -1,4 +1,5 @@
 from pydantic import BaseModel, validator
+from typing import Literal
 import json
 
 
@@ -26,6 +27,17 @@ class ThreadModel(BaseModel):
     thread_id: str
     created_at: int  # Unix timestamp (in seconds)
     metadata: MetadataModel
+
+
+class AssistantModel(BaseModel):
+    name: str = None
+    description: str = None
+    model: Literal["gpt-4-1106-preview", "gpt-3.5-turbo-1106", "gpt-3.5-turbo-16k"] = None
+    instructions: str = None
+    retrieval: bool = False
+    code_interpreter: bool = False
+    function: str = None
+    tags: list[str] | None = None
 
 
 # Messageのモデルと変換関数

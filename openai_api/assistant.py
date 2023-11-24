@@ -9,7 +9,6 @@ import logging
 import json
 from models.thread import MetadataModel, ThreadModel, MessageModel
 
-os.environ["OPENAI_API_KEY"] = "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"
 openai_api_key = os.getenv("OPENAI_API_KEY")
 
 # AsyncOpenAIで、各クラス同様にある。
@@ -50,7 +49,11 @@ class AssistantManager:
             "https://api.openai.com/v1/assistants?order=desc&limit=20",
             headers=self.__headers,
         )
-        response_data = response.json()["data"]
+        try:
+            response_data = response.json()["data"]
+        except KeyError:
+            logging.error(f"Key Error: {response.json()}")
+            response_data = []
         return response_data
 
     # create

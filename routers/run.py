@@ -74,3 +74,11 @@ def get_messages(
 ) -> list[MessageModel]:
     messages = run_manager.get_messages()
     return messages
+
+
+@run_router.get("/get_runs/{thread_id}", tags=["runs"])
+def get_runs(
+    run_manager: RunManager = Depends(get_run_manager),
+) -> list:
+    runs = run_manager.get_runs()
+    return runs

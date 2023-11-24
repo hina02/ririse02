@@ -5,9 +5,24 @@ from openai import OpenAI
 from openai_api.assistant import AssistantManager, ThreadManager
 from routers.file import upload_files
 from routers.openai_api import get_openai_client
-from models.thread import MetadataModel, ThreadModel
-
+from models.thread import MetadataModel, ThreadModel, AssistantModel
+import logging 
 assistant_router = APIRouter()
+
+
+def generate_tools(
+    retrieval: bool,
+    code_interpreter: bool,
+    function: dict,
+):
+    tools = []
+    if retrieval:
+        tools.append({"type": "retrieval"})
+    if code_interpreter:
+        tools.append({"type": "code_interpreter"})
+    if function:
+        tools.append({"type": "function", "function": function})
+    return tools
 
 
 async def generate_tools_and_files(
@@ -33,40 +48,36 @@ async def generate_tools_and_files(
     return tools, file_ids
 
 
+def manage_assistant_data(data: AssistantModel, assistant_id: str = None):
+    tools = generate_tools(data.retrieval, data.code_interpreter, data.function)
+
+    _data = {
+        "assistant_id": assistant_id if assistant_id else None,
+        "name": data.name,
+        "description": data.description,
+        "model": data.model,
+        "instructions": data.instructions,
+        "metadata": {"tags": json.dumps(data.tags)} if data.tags else None,
+        "tools": tools if tools else None,
+    }
+
+    # Noneの値を持つキーを削除
+    _data = {k: v for k, v in _data.items() if v is not None}
+    return _data
+
+
 # Assistantの作成、更新、削除
 @assistant_router.post("/create_assistant", tags=["assistants"])
 async def create_assistant(
-    name: str = Form(...),
-    description: str = Form(...),
-    model: Literal["gpt-4-1106-preview", "gpt-3.5-turbo-1106", "gpt-3.5-turbo-16k"] = Form(...),
-    instructions: str = Form(...),
-    retrieval: bool = Form(False),
-    code_interpreter: bool = Form(False),
-    function: str = Form(None),
-    uploaded_files: list[UploadFile] = File(None),
-    metadata: str = Form(None),
+    data: AssistantModel,
     client: OpenAI = Depends(get_openai_client),
 ):
     """metadata = {"tags": []} 16keyまで"""
-    tools, file_ids = await generate_tools_and_files(retrieval, code_interpreter, function, uploaded_files, client)
-
-    if metadata is not None:
-        metadata = json.loads(metadata)
-    data = {
-        "name": name,
-        "description": description,
-        "model": model,
-        "instructions": instructions,
-    }
-    if metadata is not None:
-        data["metadata"] = metadata
-    if tools:
-        data["tools"] = tools
-    if file_ids:
-        data["file_ids"] = file_ids
+    _data = manage_assistant_data(data)
 
     assistant_manager = AssistantManager(client)
-    assistant = assistant_manager.create_assistant(**data)
+    assistant = assistant_manager.create_assistant(**_data)
+    logging.info(assistant)
     return assistant
 
 
@@ -85,47 +96,23 @@ async def get_assistants(client: OpenAI = Depends(get_openai_client)):
 async def get_assistant(assistant_id: str, client: OpenAI = Depends(get_openai_client)):
     assistant_manager = AssistantManager(client)
     assistant = assistant_manager.get_assistant_details(assistant_id=assistant_id)
+    # metadata.tags -> tags
+    if 'metadata' in assistant and 'tags' in assistant['metadata']:
+        assistant['tags'] = json.loads(assistant['metadata']['tags'])
+    del assistant['metadata']
     return assistant
 
 
 @assistant_router.post("/update_assistant/{assistant_id}", tags=["assistants"])
 async def update_assistant(
     assistant_id: str,
-    name: str = Form(None),
-    description: str = Form(None),
-    model: Literal["gpt-4-1106-preview", "gpt-3.5-turbo-1106", "gpt-3.5-turbo-16k"] = Form(None),
-    instructions: str = Form(None),
-    retrieval: bool = Form(False),
-    code_interpreter: bool = Form(False),
-    function: str = Form(None),
-    uploaded_files: list[UploadFile] = File(None),
-    metadata: str = Form(None),
+    data: AssistantModel,
     client: OpenAI = Depends(get_openai_client),
 ):
-    tools, file_ids = await generate_tools_and_files(retrieval, code_interpreter, function, uploaded_files, client)
-
-    if metadata is not None:
-        metadata = json.loads(metadata)
-    data = {
-        "assistant_id": assistant_id,
-    }
-    if name is not None:
-        data["name"] = name
-    if description is not None:
-        data["description"] = description
-    if model is not None:
-        data["model"] = model
-    if instructions is not None:
-        data["instructions"] = instructions
-    if metadata is not None:
-        data["metadata"] = metadata
-    if tools:
-        data["tools"] = tools
-    if file_ids:
-        data["file_ids"] = file_ids
+    _data = manage_assistant_data(data, assistant_id=assistant_id)
 
     assistant_manager = AssistantManager(client)
-    assistant = assistant_manager.update_assistant(**data)
+    assistant = assistant_manager.update_assistant(**_data)
     return assistant
 
 
@@ -158,6 +145,8 @@ def get_threads():
             # 新しい辞書を作成し、スレッドモデルのデータとメタデータを追加
             thread_dict = {**thread_model.model_dump(), **thread_model.metadata.model_dump()}
             thread_dict.pop("metadata")
+            if "tags" in thread_dict and thread_dict["tags"] is not None:
+                thread_dict["tags"] = json.loads(thread_dict["tags"])
             threads.append(thread_dict)
     return threads
 
