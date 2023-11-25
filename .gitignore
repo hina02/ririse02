@@ -1,6 +1,7 @@
 # add_settings
 image
 voice
+!chat_wb/voice
 logging
 poetry.lock
 pyvenv.cfg
