@@ -1,4 +1,4 @@
-import logging
+from logging import getLogger
 import os
 import re
 from typing import Any
@@ -7,7 +7,7 @@ from chat_wb.models.neo4j import Node, Relation
 from neo4j import GraphDatabase
 
 # ロガー設定
-logger = logging.getLogger(__name__)
+logger = getLogger(__name__)
 
 
 # ドライバの初期化
@@ -54,7 +54,7 @@ def create_update_node(label: str, name: str, info: dict | None = None):
             session.run(f"CREATE (:{label} {{{props_string}}})", **properties)
 
             message = f"Node {{{label}:{name}}} created."
-            logging.info(message)
+            logger.info(message)
             return {"status": "success", "message": message}
 
         # ノードが存在する場合、プロパティを更新する。
@@ -72,11 +72,11 @@ def create_update_node(label: str, name: str, info: dict | None = None):
                 updated_properties = result.single().get("updated_properties")
 
                 message = f"Node {{{label}:{name}}} already exists.\nProperty updated:{updated_properties}."
-                logging.info(message)
+                logger.info(message)
                 return {"status": "success", "message": message}
             else:
                 message = f"Node {{{label}:{name}}} already exists."
-                logging.info(message)
+                logger.info(message)
                 return {"status": "success", "message": message}
 
 
@@ -106,7 +106,7 @@ def create_update_append_node(
             node_id = result.single()["node_id"]
 
             message = f"Node {{{label}:{name}}} created."
-            logging.info(message)
+            logger.info(message)
             return {"status": "success", "message": message, "node_id": node_id}
 
         # ノードが存在する場合、指定されたプロパティを更新する。
@@ -123,7 +123,7 @@ def create_update_append_node(
             node_id = result.single()["node_id"]
 
             message = f"Node {{{label}:{name}}} already exists.\nProperty updated."
-            logging.info(message)
+            logger.info(message)
             return {"status": "success", "message": message, "node_id": node_id}
 
 
@@ -175,7 +175,7 @@ def create_update_relationship(
 
             message = f"""Relationship {{Node1:{node1_id}}}-{{{relation_type}:{time}}}
                             ->{{Node2:{node2_id}}} already exists.\nProperty updated:{{'contents':{contents}}}"""
-            logging.info(message)
+            logger.info(message)
             return {"status": "success", "message": message}
 
         # リレーションシップが存在しない場合、新しいリレーションシップを作成
@@ -194,7 +194,7 @@ def create_update_relationship(
 
             message = f"""Relationship {{Node1:{node1_id}}}-{{{relation_type}:{time}}}
                             ->{{Node2:{node2_id}}} created.\nProperty:{{'contents':{contents}}}"""
-            logging.info(message)
+            logger.info(message)
             return {"status": "success", "message": message}
 
 
@@ -209,9 +209,9 @@ def delete_node(label: str = None, name: str = None, node_id: int = None):
             )
             deleted_count = result.single().get("deleted_count")
             if deleted_count > 0:
-                return logging.info(message=f"Node {{node_id:{node_id}}} deleted.")
+                return logger.info(message=f"Node {{node_id:{node_id}}} deleted.")
             else:
-                return logging.info(message=f"Node {{node_id:{node_id}}} not found.")
+                return logger.info(message=f"Node {{node_id:{node_id}}} not found.")
         # ラベルと名前でノードを削除する
         else:
             result = session.run(
@@ -220,9 +220,9 @@ def delete_node(label: str = None, name: str = None, node_id: int = None):
             )
             deleted_count = result.single().get("deleted_count")
             if deleted_count > 0:
-                return logging.info(message=f"Node {{{label}:{name}}} deleted.")
+                return logger.info(message=f"Node {{{label}:{name}}} deleted.")
             else:
-                return logging.info(message=f"Node {{{label}:{name}}} not found.")
+                return logger.info(message=f"Node {{{label}:{name}}} not found.")
 
 
 # IDをもとにリレーションシップを削除する
@@ -240,9 +240,9 @@ def delete_relationship(relationship_id: int):
         deleted_count = result.single().get("deleted_count")
 
     if deleted_count > 0:
-        return logging.info(message=f"Relationship_id {{{relationship_id}}} deleted.")
+        return logger.info(message=f"Relationship_id {{{relationship_id}}} deleted.")
     else:
-        return logging.info(message=f"Relationship_id {{{relationship_id}}} not found.")
+        return logger.info(message=f"Relationship_id {{{relationship_id}}} not found.")
 
 # 指定した範囲のノードのプロパティを取得する
 def get_node_properties(

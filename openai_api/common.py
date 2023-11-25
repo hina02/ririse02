@@ -1,6 +1,11 @@
+from openai import OpenAI
 import tiktoken
 import openai
+from logging import getLogger
 
+logger = getLogger(__name__)
+
+client = OpenAI()
 
 # token数の算出
 def count_tokens(text: str, model="gpt-3.5-turbo-0613") -> int:
@@ -11,14 +16,10 @@ def count_tokens(text: str, model="gpt-3.5-turbo-0613") -> int:
 
 
 # ベクトル化
-from openai import OpenAI
-
-client = OpenAI()
-
-
-def get_embedding(text, model="text-embedding-ada-002") -> list[float]:
+def get_embedding(text: str, model: str = "text-embedding-ada-002") -> list[float]:
     text = text.replace("\n", " ")
-    return client.embeddings.create(input=[text], model=model).data[0].embedding
+    result = client.embeddings.create(input=[text], model=model).data[0].embedding
+    return result
 
 
 # モデレーター

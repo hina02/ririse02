@@ -15,7 +15,6 @@ async def websocket_endpoint(websocket: WebSocket):
 
     # クライアントからのJSONメッセージを待つ
     data = await websocket.receive_text()
-    print(data)
     input_data = WebSocketInputData(**json.loads(data))
     input_text = input_data.input_text
     title = input_data.title
@@ -25,7 +24,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
     # メッセージを受信した後、generate_audioを呼び出す
     results = await asyncio.gather(
-        wb_generate_audio(input_data, websocket, 6),  # レスポンス、音声合成
+        wb_generate_audio(input_data, websocket, 3),  # レスポンス、音声合成
         wb_get_graph_from_triplet(input_text, websocket),  # triplet, graph（ノード情報）獲得
     )
 

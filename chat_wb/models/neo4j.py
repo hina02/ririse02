@@ -1,10 +1,10 @@
-import logging
+from logging import getLogger
 from typing import Literal
 
 from pydantic import BaseModel, field_validator
 
 # ロガー設定
-logger = logging.getLogger(__name__)
+logger = getLogger(__name__)
 
 
 class Node(BaseModel):

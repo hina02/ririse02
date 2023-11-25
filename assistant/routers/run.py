@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Depends, Request, Query, HTTPException
 import uuid
-import logging
+from logging import getLogger
 from openai import OpenAI
-from openai_api.assistant import RunManager, MessageModel
-from openai_api.routers.openai_api import get_openai_client
+from assistant.assistant import RunManager, MessageModel
+from assistant.assistant import get_openai_client
+
+logger = getLogger(__name__)
 
 run_router = APIRouter()
 

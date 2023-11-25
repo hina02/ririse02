@@ -6,20 +6,23 @@ from fastapi.middleware.cors import CORSMiddleware
 import os
 import config
 import binascii
-import logging
-from openai_api.routers.openai_api import openai_api_router
-from openai_api.routers.file import file_router
-from openai_api.routers.assistant import assistant_router
-from openai_api.routers.run import run_router
+from logging import getLogger
+from openai_api.routers import openai_api_router
+from assistant.routers.file import file_router
+from assistant.routers.assistant import assistant_router
+from assistant.routers.run import run_router
 from chat_wb.routers.websocket import wb_router
 from chat_wb.routers.neo4j import neo4j_router
+from chat_wb.routers.memory import memory_router
 from watchdog.observers import Observer
 
+# ロガーをuvicornのロガーに設定する
+import logging
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s %(levelname)s [%(funcName)s]: %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(funcName)s]: %(message)s"
 )
-
-
+logger = getLogger(__name__)
 # wacthdogを用いたフォルダ監視のための設定
 observer = None  # グローバル変数でObserverインスタンスを管理
 development_flag = True  # 開発中はこのフラグをTrueに設定
@@ -47,13 +50,14 @@ async def app_lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=app_lifespan)
 # OpenAI Assistant Routers
-app.include_router(openai_api_router)
-app.include_router(file_router)
-app.include_router(assistant_router)
-app.include_router(run_router)
+app.include_router(openai_api_router, prefix="/openai_api")
+app.include_router(file_router, prefix="/openai_api")
+app.include_router(assistant_router, prefix="/openai_api")
+app.include_router(run_router, prefix="/openai_api")
 # Websocket Routers
 app.include_router(wb_router)
-app.include_router(neo4j_router)
+app.include_router(neo4j_router, prefix="/chat_wb")
+app.include_router(memory_router, prefix="/chat_wb")
 
 # CORSミドルウェアの追加
 origins = [

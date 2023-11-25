@@ -2,14 +2,14 @@ from neo4j import GraphDatabase
 import os
 import json
 import time
-import logging
+from logging import getLogger
 from functools import lru_cache
-from chat_wb.neo4j.triplet import run_sequences
+# from chat_wb.neo4j.triplet import run_sequences
 from chat_wb.models.wb import WebSocketInputData
-from chat_wb.utils import openai_embeddings
+from openai_api.common import get_embedding
 
 # ロガー設定
-logger = logging.getLogger(__name__)
+logger = getLogger(__name__)
 
 
 # Neo4jに保存
@@ -60,9 +60,9 @@ def check_index() -> list[str]:
                 label="Message",
             )
         indices = show_index()
-        logging.info(f"Vector Index created: {indices}")
+        logger.info(f"Vector Index created: {indices}")
     else:
-        logging.info(f"Vector Index already exists: {indices}")
+        logger.info(f"Vector Index already exists: {indices}")
 
     return indices
 
@@ -109,7 +109,7 @@ def get_titles() -> list[str]:
 
 def query_vector(query: str, label: str, k: int = 3):
     """インデックスを作成したラベル(Title, Message)から、ベクトルを検索する"""
-    vector = openai_embeddings(query)
+    vector = get_embedding(query)
 
     with driver.session() as session:
         results = session.run(
@@ -148,13 +148,16 @@ async def store_to_neo4j(
     create_time = time.time() if create_time is None else create_time
     update_time = create_time
 
+    # エンティティ抽出はいったん保留
     # entityを抽出(user_input_entity
-    user_input_entity = (
-        await run_sequences(user_input)
-        if user_input_entity is None
-        else user_input_entity
-    )
-    ai_response_entity = await run_sequences(ai_response)
+    # user_input_entity = (
+    #     await run_sequences(user_input)
+    #     if user_input_entity is None
+    #     else user_input_entity
+    # )
+
+    # ai_response_entity = await run_sequences(ai_response)
+    ai_response_entity = None
 
     with driver.session() as session:
         # 親ノードTitleが無ければ、作成する
@@ -172,7 +175,7 @@ async def store_to_neo4j(
 
         # 親ノードTitleが新規作成の場合のベクトル作成
         if pa_result == "NOT_FOUND":
-            pa_vector = openai_embeddings(title)
+            pa_vector = get_embedding(title)
             session.run(
                 """
                         MERGE (a:Title {title: $title})
@@ -182,7 +185,7 @@ async def store_to_neo4j(
             )
 
         # メッセージノードを作成
-        vector = openai_embeddings(ai_response)  # どれを登録するべきか悩ましい
+        vector = get_embedding(ai_response)  # どれを登録するべきか悩ましい
         result = session.run(
             """CREATE (b:Message {create_time: $create_time,
                              user_input: $user_input, user_input_entity: $user_input_entity,

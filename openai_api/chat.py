@@ -1,9 +1,10 @@
 import asyncio
-import logging
+from logging import getLogger
 from openai import OpenAI, AsyncOpenAI
-from openai_api.models.chat import ChatPrompt
+from openai_api.models import ChatPrompt
 from utils.common import timer, atimer
 
+logger = getLogger(__name__)
 
 memory = []  # 会話の記憶
 
@@ -84,5 +85,5 @@ async def _achat(
         model="gpt-3.5-turbo", messages=messages
     )
     results.append(chat_completion.choices[0].message.content)
-    logging.info(results)
+    logger.info(results)
     return results

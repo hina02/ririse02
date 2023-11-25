@@ -1,6 +1,6 @@
 import asyncio
 import json
-import logging
+from logging import getLogger
 import spacy
 from pydantic import BaseModel
 from langchain.chains import LLMChain, SequentialChain
@@ -28,7 +28,7 @@ from chat_wb.utils import split_japanese_text
 from utils.common import atimer
 
 # ロガー設定
-logger = logging.getLogger(__name__)
+logger = getLogger(__name__)
 
 
 class TemporalTriplet(BaseModel):
@@ -92,7 +92,7 @@ class TemporalTriplet(BaseModel):
         self.relations = None
         self.relations_between = None
 
-    # print, loggingで表示する際に、full_textを除外する
+    # print, loggerで表示する際に、full_textを除外する
     def __str__(self):
         fields = {
             k: v
@@ -133,9 +133,9 @@ async def _get_node(graph: TemporalTriplet, node: Node):
         node_obj = nodes[0]
         node.id = node_obj.get("id")
         node.properties = node_obj.get("properties")
-        logging.info(f"node match: {node}")
+        logger.info(f"node match: {node}")
         if len(nodes) > 1:
-            logging.error(f"get nodes: {graph.nodes}")
+            logger.error(f"get nodes: {graph.nodes}")
 
 
 async def _get_related_nodes_by_relation(graph: TemporalTriplet, node: Node):
@@ -143,13 +143,13 @@ async def _get_related_nodes_by_relation(graph: TemporalTriplet, node: Node):
         label=node.label, name=node.name, relation_type=graph.relation.type
     )
     graph.nodes = nodes
-    logging.info(f"get related nodes by relation type: {nodes}")
+    logger.info(f"get related nodes by relation type: {nodes}")
 
 
 async def _get_node_relations(graph: TemporalTriplet, node: Node):
     relations = get_all_relationships(label=node.label, name=node.name)
     graph.relations = relations
-    logging.info(f"relation match: {relations}")
+    logger.info(f"relation match: {relations}")
 
 
 async def _get_node_relations_between(graph: TemporalTriplet):
@@ -160,20 +160,20 @@ async def _get_node_relations_between(graph: TemporalTriplet):
         name2=graph.node2.name,
     )
     graph.relations_between = relations_between
-    logging.info(f"relation between match: {relations_between}")
+    logger.info(f"relation between match: {relations_between}")
 
 
 def _get_graph_from_triplet(triplet: TemporalTriplet) -> TemporalTriplet:
     # graphを作成
     graph = TemporalTriplet(triplet=triplet)
-    logging.info(f"graph: {graph}")
+    logger.info(f"graph: {graph}")
 
     # node_labelの一致確認。一致しなければ、nameのみ渡す。
     try:
         graph.node1 = Node(name=graph.name1, label=graph.label1)
     except Exception:
         graph.node1 = Node(name=graph.name1)
-    logging.info(f"graph.node1:{graph.node1}")
+    logger.info(f"graph.node1:{graph.node1}")
 
     if graph.name1 == graph.name2:  # node1とnode2が同じ場合、node2は作成しない。文脈上あり得ないので。
         graph.node2 = None
@@ -182,7 +182,7 @@ def _get_graph_from_triplet(triplet: TemporalTriplet) -> TemporalTriplet:
             graph.node2 = Node(name=graph.name2, label=graph.label2)
         except Exception:
             graph.node2 = Node(name=graph.name2)
-        logging.info(f"graph.node2:{graph.node2}")
+        logger.info(f"graph.node2:{graph.node2}")
 
     # relation_typeの一致確認
     # 読み取りの場合、contentは不要。DBからのデータで上書きされる。
@@ -202,7 +202,7 @@ def _get_graph_from_triplet(triplet: TemporalTriplet) -> TemporalTriplet:
     if hasattr(graph, "relation"):
         if graph.time:
             graph.relation.time = graph.time
-        logging.info(f"graph.relation:{graph.relation}")
+        logger.info(f"graph.relation:{graph.relation}")
 
     return graph
 
@@ -236,7 +236,7 @@ async def get_graph_from_triplet(text: str) -> tuple[list[dict], list[ResponseGr
     # tripletからの情報をgraphに格納
     graphs = []
     for triplet in triplets:
-        logging.info(f"triplet: {triplet}")
+        logger.info(f"triplet: {triplet}")
 
         # tripletをgraphに変換し、graphをリストに追加
         graph = _get_graph_from_triplet(triplet)
@@ -319,7 +319,7 @@ async def run_sequential_triplet(text: str, reference: str):
 async def run_sequences(text: str) -> list[dict] | None:
     # 一文に分割
     tokens = split_japanese_text(text)
-    logging.info(f"tokens: {tokens}")
+    logger.info(f"tokens: {tokens}")
 
     # tripletを抽出(非同期処理)
     tasks = [run_sequential_triplet(text=token, reference=text) for token in tokens]
@@ -333,7 +333,7 @@ async def run_sequences(text: str) -> list[dict] | None:
             results.extend(json_item if isinstance(json_item, list) else [json_item])
         except json.JSONDecodeError:
             # 有効なJSONでない場合の処理
-            logging.error(f"Invalid response for json.loads: {item}")
+            logger.error(f"Invalid response for json.loads: {item}")
 
     # subject, objectの最初の要素（名前）から接尾語を削除
     if not results:
@@ -342,7 +342,7 @@ async def run_sequences(text: str) -> list[dict] | None:
             data["object"][0] = remove_suffix(data["object"][0])
     else:
         results = None
-    logging.info(f"results: {results}")  # 出力なしの場合は、Noneを返す。単純質問は、Noneになる傾向。
+    logger.info(f"results: {results}")  # 出力なしの場合は、Noneを返す。単純質問は、Noneになる傾向。
     return results
 
 

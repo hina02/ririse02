@@ -1,12 +1,14 @@
-from fastapi import APIRouter, UploadFile, File, Depends, Form, Body
-from typing import Literal
+from fastapi import APIRouter, UploadFile, Depends, Body
 import json
 from openai import OpenAI
-from openai_api.assistant import AssistantManager, ThreadManager
-from openai_api.routers.file import upload_files
-from openai_api.routers.openai_api import get_openai_client
-from openai_api.models.thread import MetadataModel, ThreadModel, AssistantModel
-import logging 
+from assistant.assistant import AssistantManager, ThreadManager
+from assistant.routers.file import upload_files
+from assistant.assistant import get_openai_client
+from assistant.models import MetadataModel, ThreadModel, AssistantModel
+from logging import getLogger
+
+logger = getLogger(__name__)
+
 assistant_router = APIRouter()
 
 
@@ -78,7 +80,7 @@ async def create_assistant(
 
     assistant_manager = AssistantManager(client)
     assistant = assistant_manager.create_assistant(**_data)
-    logging.info(assistant)
+    logger.info(assistant)
     return assistant
 
 

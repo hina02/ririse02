@@ -1,18 +1,35 @@
 import requests
+from fastapi import Request
+import uuid
 from openai import OpenAI
 from openai.types.beta.assistant import Assistant  # アシスタントの型
 from openai.types.beta.thread import Thread  # スレッドの型
 from openai.types.beta.threads import ThreadMessage  # メッセージの型
 import os
 import time
-import logging
+from logging import getLogger
 import json
-from openai_api.models.thread import MetadataModel, ThreadModel, MessageModel
+from assistant.models import MetadataModel, ThreadModel, MessageModel
+
+logger = getLogger(__name__)
 
 openai_api_key = os.getenv("OPENAI_API_KEY")
 
-# AsyncOpenAIで、各クラス同様にある。
-client = OpenAI()
+# Clients for assistant module
+clients: dict = {}
+
+
+def get_openai_client(request: Request) -> OpenAI:
+    if "user_id" not in request.session:
+        request.session["user_id"] = str(uuid.uuid4())  # Generate a new user_id
+    user_id = request.session["user_id"]
+
+    if user_id not in clients:
+        clients[user_id] = OpenAI()  # defaults to os.environ.get("OPENAI_API_KEY")
+        logger.info(f"initialize user_id: {user_id}")
+
+    print(clients[user_id])
+    return clients[user_id]
 
 # client.beta.assistants.filesは、fileをassistatnsに紐付ける。
 
@@ -52,7 +69,7 @@ class AssistantManager:
         try:
             response_data = response.json()["data"]
         except KeyError:
-            logging.error(f"Key Error: {response.json()}")
+            logger.error(f"Key Error: {response.json()}")
             response_data = []
         return response_data
 
@@ -84,7 +101,7 @@ class AssistantManager:
         response = requests.delete(
             f"https://api.openai.com/v1/assistants/{assistant_id}", headers=self.__headers
         )
-        logging.info(response.json())
+        logger.info(response.json())
         return
 
 
@@ -106,7 +123,7 @@ class ThreadManager:
             created_at=thread.created_at,
             metadata=thread.metadata,
         )
-        logging.info(f"thread_model: {thread_model}")
+        logger.info(f"thread_model: {thread_model}")
         # スレッドモデルをJSON Lineファイルに保存
         with open("logging/thread_models.jsonl", "a") as f:
             f.write(json.dumps(thread_model.model_dump()) + "\n")
@@ -165,7 +182,7 @@ class RunManager:
             content=content,  # content of message
             **kwargs,
         )
-        logging.info(f"message_id: {message.id}")
+        logger.info(f"message_id: {message.id}")
         return message.id
 
     def get_messages(self, **kwargs) -> list[MessageModel]:
@@ -200,7 +217,7 @@ class RunManager:
             **kwargs,  # instructions : Override the default system message of the assistant
         )
         run_id = run.id
-        logging.info(f"run_id: {run_id}")
+        logger.info(f"run_id: {run_id}")
         self.run_id = run_id
         return run_id
 
@@ -217,17 +234,17 @@ class RunManager:
                     thread_id=self.thread_id, run_id=self.run_id
                 )
                 self.run_status = run.status
-                logging.info(f"run_status: {self.run_status}")
+                logger.info(f"run_status: {self.run_status}")
                 # run_idを初期化して終了する。
                 if self.run_status in ["completed", "expired", "failed", "timed_out"]:
                     self.run_id = None
                     # # Retrieve the latest message when the run is completed
                     # latest_message = self.retrieve_message(self.get_latest_message().id)
-                    # logging.info(f"Latest message: {latest_message}")
+                    # logger.info(f"Latest message: {latest_message}")
                     break
                 time.sleep(2)  # Check status every 2 seconds
         else:
-            logging.info("No active run to retrieve status from.")
+            logger.info("No active run to retrieve status from.")
             return "empty"
         return self.run_status
 

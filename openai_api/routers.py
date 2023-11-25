@@ -1,12 +1,13 @@
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 import uuid
-import logging
+from logging import getLogger
 from openai import OpenAI, AsyncOpenAI
 from openai_api.chat import chat, async_chat
 from openai_api.jsonmode import output_json, output_json_to_neo4j
 from openai_api.visual import gpt4v
 
+logger = getLogger(__name__)
 
 openai_api_router = APIRouter()
 

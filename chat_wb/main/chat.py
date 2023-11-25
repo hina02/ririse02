@@ -10,6 +10,9 @@ from langchain.prompts.chat import (
 )
 from langchain.memory import ConversationBufferWindowMemory
 import re
+from logging import getLogger
+
+logger = getLogger(__name__)
 
 # from chains.prompts.ririse import RIRISE_PROMPT
 
@@ -89,7 +92,7 @@ def streamchain(k:int):
         llm=ChatOpenAI(
             model_name="gpt-4-1106-preview",  # gpt-4, gpt-3.5-turbo-0613のスイッチングを想定
             temperature=0.3,
-            max_tokens=240,
+            max_tokens=80,
         ),
         memory=temp_memory,
     )

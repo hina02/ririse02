@@ -1,6 +1,8 @@
-import logging
+from logging import getLogger
 from openai import OpenAI
-from openai_api.models.chat import ChatPrompt
+from openai_api.models import ChatPrompt
+
+logger = getLogger(__name__)
 
 client = OpenAI()
 
@@ -49,5 +51,5 @@ def output_json_to_neo4j(
         seed=seed,  # シード値固定した方が安定するかもしれない。
     )
     response_text = response.choices[0].message.content
-    logging.info(response_text)
+    logger.info(response_text)
     return response_text

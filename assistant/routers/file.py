@@ -5,9 +5,11 @@ from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from openai import OpenAI
 from openai.resources.files import FileObject
 import os
-import logging
+from logging import getLogger
 from tempfile import NamedTemporaryFile
-from openai_api.routers.openai_api import get_openai_client
+from assistant.assistant import get_openai_client
+
+logger = getLogger("uvicorn.app")
 
 file_router = APIRouter()
 
@@ -44,7 +46,7 @@ async def upload_files(
                     response = client.files.create(file=f, purpose="assistants")
 
                 response = response.model_dump()
-                logging.info(response)
+                logger.info(response)
                 file_ids.append(response.get("id"))
             finally:
                 os.unlink(temp_file_name)
@@ -63,5 +65,5 @@ async def get_files(client: OpenAI = Depends(get_openai_client)) -> list[FileObj
 @file_router.delete("/delete_file/{file_id}", tags=["files"])
 async def delete_file(file_id: str, client: OpenAI = Depends(get_openai_client)):
     response = client.files.delete(file_id)
-    logging.info(response.model_dump())
+    logger.info(response.model_dump())
     return

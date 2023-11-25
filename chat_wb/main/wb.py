@@ -1,6 +1,6 @@
 import os
 import json
-import logging
+from logging import getLogger
 import base64
 from fastapi import WebSocket
 from chat_wb.voice.text2voice import playVoicePeak
@@ -8,6 +8,7 @@ from chat_wb.main.chat import streamchain, TextFormatter
 from chat_wb.neo4j.triplet import get_graph_from_triplet
 from chat_wb.models.wb import WebSocketInputData
 
+logger = getLogger(__name__)
 
 # テキスト整形
 formatter = TextFormatter()
@@ -30,7 +31,9 @@ node_infos = None
 
 # websocketに対応して、triplet, graphを送信する関数
 async def wb_get_graph_from_triplet(text: str, websocket: WebSocket):
-    result = await get_graph_from_triplet(text)
+    # run_sequenceを一時停止
+    # result = await get_graph_from_triplet(text)
+    result = None
     if result is None:
         return None
     triplet, graph = result
@@ -38,8 +41,8 @@ async def wb_get_graph_from_triplet(text: str, websocket: WebSocket):
     global node_infos
     node_infos = graph
     node_infos = "ボイスロイド has 彩澄しゅお, 彩澄りりせ"
-    logging.info(f"triplet: {triplet}")
-    logging.info(f"graph: {graph}")
+    logger.info(f"triplet: {triplet}")
+    logger.info(f"graph: {graph}")
 
 
 # テキスト生成から音声合成、再生までを統括する関数
