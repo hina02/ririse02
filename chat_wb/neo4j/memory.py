@@ -4,9 +4,9 @@ import json
 import time
 import logging
 from functools import lru_cache
-from chat.triplet import run_sequences
-from models.wb import WebSocketInputData
-from utils.common import openai_embeddings
+from chat_wb.neo4j.triplet import run_sequences
+from chat_wb.models.wb import WebSocketInputData
+from chat_wb.utils import openai_embeddings
 
 # ロガー設定
 logger = logging.getLogger(__name__)

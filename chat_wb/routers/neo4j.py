@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from cache import (
+from chat_wb.cache import (
     fetch_labels,
     fetch_node_names,
     fetch_relationships,

@@ -7,7 +7,7 @@ from openai.resources.files import FileObject
 import os
 import logging
 from tempfile import NamedTemporaryFile
-from routers.openai_api import get_openai_client
+from openai_api.routers.openai_api import get_openai_client
 
 file_router = APIRouter()
 

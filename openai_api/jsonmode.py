@@ -1,6 +1,6 @@
 import logging
 from openai import OpenAI
-from models.chat import ChatPrompt
+from openai_api.models.chat import ChatPrompt
 
 client = OpenAI()
 

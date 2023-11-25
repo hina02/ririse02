@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from openai import OpenAI, AsyncOpenAI
-from models.chat import ChatPrompt
+from openai_api.models.chat import ChatPrompt
 from utils.common import timer, atimer
 
 
@@ -68,19 +68,21 @@ async def async_chat(user_messages: list[str], async_client: AsyncOpenAI) -> Non
         asyncio.create_task(_achat(user_message, async_client))
         for user_message in user_messages
     ]
-    await asyncio.gather(*tasks)
-
+    result= await asyncio.gather(*tasks)
+    return result
 
 @atimer
 async def _achat(
     user_message: str, async_client: AsyncOpenAI, system_message="initialize chat"
 ) -> None:
+    results = []
     messages = ChatPrompt(
         system_message=system_message,
         user_message=user_message,
     ).create_messages()
-
     chat_completion = await async_client.chat.completions.create(
         model="gpt-3.5-turbo", messages=messages
     )
-    logging.info(chat_completion.choices[0].message.content)
+    results.append(chat_completion.choices[0].message.content)
+    logging.info(results)
+    return results

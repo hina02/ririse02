@@ -1,5 +1,5 @@
 from diskcache import Cache
-from chat.neo4j import (
+from chat_wb.neo4j.neo4j import (
     get_node_names,
     get_node_labels,
     get_relationship_types,
@@ -52,9 +52,11 @@ def fetch_label_and_relationship_type_sets() -> dict:
 
     if label_and_relationship_type_sets is None:
         label_and_relationship_type_sets = get_label_and_relationship_type_sets()
+        # キャッシュに保存するために、キーを文字列に変換
+        str_key_dict = {str(key): value for key, value in label_and_relationship_type_sets.items()}
         cache.set(
             "label_and_relationship_type_sets",
-            label_and_relationship_type_sets,
+            str_key_dict,
             expire=86400,
         )
 

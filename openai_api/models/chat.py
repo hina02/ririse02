@@ -1,7 +1,7 @@
 from pydantic import BaseModel, validator
 from typing import Literal
 import base64
-
+ 
 
 class Message(BaseModel):
     role: Literal["system", "user", "assistant"]

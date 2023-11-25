@@ -3,7 +3,7 @@ import os
 import re
 from typing import Any
 
-from models.neo4j import Node, Relation
+from chat_wb.models.neo4j import Node, Relation
 from neo4j import GraphDatabase
 
 # ロガー設定

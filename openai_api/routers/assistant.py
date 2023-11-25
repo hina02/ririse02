@@ -3,9 +3,9 @@ from typing import Literal
 import json
 from openai import OpenAI
 from openai_api.assistant import AssistantManager, ThreadManager
-from routers.file import upload_files
-from routers.openai_api import get_openai_client
-from models.thread import MetadataModel, ThreadModel, AssistantModel
+from openai_api.routers.file import upload_files
+from openai_api.routers.openai_api import get_openai_client
+from openai_api.models.thread import MetadataModel, ThreadModel, AssistantModel
 import logging 
 assistant_router = APIRouter()
 

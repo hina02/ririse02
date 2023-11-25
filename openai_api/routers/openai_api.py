@@ -40,23 +40,33 @@ def get_openai_client(request: Request):
     return clients[user_id].client
 
 
+async def get_async_openai_client(request: Request):
+    if "user_id" not in request.session:
+        request.session["user_id"] = str(uuid.uuid4())  # Generate a new user_id
+    user_id = request.session["user_id"]
+
+    if user_id not in clients:
+        clients[user_id] = OpenAIClient(user_id)
+        logging.info(f"initialize user_id: {user_id}")
+    return clients[user_id].async_clinent
+
+
 @openai_api_router.get("/chat")
 def chat_api(
     user_message: str, client: OpenAIClient = Depends(get_openai_client)
 ) -> str:
-    result = chat("initialize chat.", user_message, client=client)
-    logging.info(f"User ID: {client.user_id}")
+    result = chat("initialize chat.", user_message, client)
     return result
 
 
 @openai_api_router.get("/async_chat")
 async def async_chat_api(
-    user_message: str, k: int = 3, client: OpenAIClient = Depends(get_openai_client)
+    user_message: str, k: int = 3, client: OpenAIClient = Depends(get_async_openai_client)
 ):
     """非同期処理のテスト 3回同じ入力を与えて、3回同じ出力が得られることを確認する"""
     user_messages = []
     user_messages.extend([user_message] * k)
-    result = await async_chat(user_messages, client.async_clinent)
+    result = await async_chat(user_messages, client)
     return result
 
 

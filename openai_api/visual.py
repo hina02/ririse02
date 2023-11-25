@@ -1,6 +1,6 @@
 # 画像へのリンクを渡す　／　Base64エンコードされた画像を渡す
 from openai import OpenAI
-from models.chat import ImageChatPrompt
+from openai_api.models.chat import ImageChatPrompt
 
 client = OpenAI()
 

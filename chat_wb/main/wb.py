@@ -3,10 +3,10 @@ import json
 import logging
 import base64
 from fastapi import WebSocket
-from text2voice import playVoicePeak
-from chat.chat import streamchain, TextFormatter
-from chat.triplet import get_graph_from_triplet
-from models.wb import WebSocketInputData
+from chat_wb.voice.text2voice import playVoicePeak
+from chat_wb.main.chat import streamchain, TextFormatter
+from chat_wb.neo4j.triplet import get_graph_from_triplet
+from chat_wb.models.wb import WebSocketInputData
 
 
 # テキスト整形

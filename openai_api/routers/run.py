@@ -3,7 +3,7 @@ import uuid
 import logging
 from openai import OpenAI
 from openai_api.assistant import RunManager, MessageModel
-from routers.openai_api import get_openai_client
+from openai_api.routers.openai_api import get_openai_client
 
 run_router = APIRouter()
 

@@ -7,12 +7,12 @@ import os
 import config
 import binascii
 import logging
-from routers.openai_api import openai_api_router
-from routers.file import file_router
-from routers.assistant import assistant_router
-from routers.run import run_router
-from routers.websocket import wb_router
-from routers.neo4j import neo4j_router
+from openai_api.routers.openai_api import openai_api_router
+from openai_api.routers.file import file_router
+from openai_api.routers.assistant import assistant_router
+from openai_api.routers.run import run_router
+from chat_wb.routers.websocket import wb_router
+from chat_wb.routers.neo4j import neo4j_router
 from watchdog.observers import Observer
 
 logging.basicConfig(

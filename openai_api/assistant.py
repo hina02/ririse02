@@ -7,7 +7,7 @@ import os
 import time
 import logging
 import json
-from models.thread import MetadataModel, ThreadModel, MessageModel
+from openai_api.models.thread import MetadataModel, ThreadModel, MessageModel
 
 openai_api_key = os.getenv("OPENAI_API_KEY")
 

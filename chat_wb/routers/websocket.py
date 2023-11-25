@@ -1,9 +1,9 @@
 from fastapi import APIRouter, WebSocket
 import json
 import asyncio
-from chat.wb import wb_generate_audio, wb_get_graph_from_triplet
-from chat.memory import get_messages, store_to_neo4j
-from chat.wb import WebSocketInputData
+from chat_wb.main.wb import wb_generate_audio, wb_get_graph_from_triplet
+from chat_wb.neo4j.memory import get_messages, store_to_neo4j
+from chat_wb.models.wb import WebSocketInputData
 
 wb_router = APIRouter()
 

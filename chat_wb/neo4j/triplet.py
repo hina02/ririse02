@@ -11,20 +11,21 @@ from langchain.prompts.chat import (
     HumanMessagePromptTemplate,
     SystemMessagePromptTemplate,
 )
-from models.neo4j import Node, Relation
-from chat.prompt import (
+from chat_wb.models.neo4j import Node, Relation
+from chat_wb.main.prompt import (
     COREFERENCE_RESOLUTION_PROMPT,
     EXTRACT_MULTITEMPORALTRIPLET_PROMPT,
 )
-from chat.neo4j import (
+from chat_wb.neo4j.neo4j import (
     get_all_relationships,
     get_all_relationships_between,
     get_node,
     get_related_nodes_by_relation,
     remove_suffix,
 )
-from cache import RELATION_SETS
-from utils.common import atimer, split_japanese_text
+from chat_wb.cache import RELATION_SETS
+from chat_wb.utils import split_japanese_text
+from utils.common import atimer
 
 # ロガー設定
 logger = logging.getLogger(__name__)

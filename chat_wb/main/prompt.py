@@ -1,4 +1,4 @@
-from cache import (
+from chat_wb.cache import (
     fetch_labels,
     fetch_relationships,
 )
