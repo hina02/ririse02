@@ -62,6 +62,7 @@ app.include_router(memory_router, prefix="/chat_wb")
 # CORSミドルウェアの追加
 origins = [
     "http://127.0.0.1:4321",  # フロントエンドのオリジン
+    "https://ririse-as.vercel.app",  # フロントエンドのオリジン
     "http://localhost:4321",
 ]
 
