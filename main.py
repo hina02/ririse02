@@ -63,7 +63,8 @@ app.include_router(memory_router, prefix="/chat_wb")
 origins = [
     "http://127.0.0.1:4321",  # フロントエンドのオリジン
     "https://ririse-as.vercel.app",  # フロントエンドのオリジン
-    "http://localhost:4321",
+    "http://localhost:5173",
+    "http://localhost:4322",
 ]
 
 app.add_middleware(

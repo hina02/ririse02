@@ -1,7 +1,7 @@
-from fastapi import APIRouter, WebSocket
+from fastapi import APIRouter, WebSocket, Depends
 import json
 import asyncio
-from chat_wb.main.wb import wb_generate_audio, wb_get_graph_from_triplet
+from chat_wb.main.wb import StreamChatClient, get_stream_chat_client
 from chat_wb.neo4j.memory import get_messages, store_to_neo4j
 from chat_wb.models.wb import WebSocketInputData
 
@@ -12,7 +12,7 @@ wb_router = APIRouter()
 @wb_router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()  # 接続を受け入れる
-
+    client = StreamChatClient()
     # クライアントからのJSONメッセージを待つ
     data = await websocket.receive_text()
     input_data = WebSocketInputData(**json.loads(data))
@@ -24,8 +24,8 @@ async def websocket_endpoint(websocket: WebSocket):
 
     # メッセージを受信した後、generate_audioを呼び出す
     results = await asyncio.gather(
-        wb_generate_audio(input_data, websocket, 3),  # レスポンス、音声合成
-        wb_get_graph_from_triplet(input_text, websocket),  # triplet, graph（ノード情報）獲得
+        client.wb_generate_audio(input_data, websocket, 3),  # レスポンス、音声合成
+        client.wb_get_graph_from_triplet(input_text, websocket),  # triplet, graph（ノード情報）獲得
     )
 
     # 全ての処理が終了した後で、Neo4jに保存してwebsocketを閉じる

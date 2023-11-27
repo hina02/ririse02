@@ -23,7 +23,7 @@ def get_run_manager(
 
     if user_id not in run_managers:
         run_managers[user_id] = RunManager(client, thread_id=thread_id)
-        logging.info(f"initialize user_id: {user_id}")
+        logger.info(f"initialize user_id: {user_id}")
     return run_managers[user_id]
 
 
