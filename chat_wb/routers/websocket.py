@@ -12,12 +12,14 @@ wb_router = APIRouter()
 @wb_router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()  # 接続を受け入れる
-    client = StreamChatClient()
     # クライアントからのJSONメッセージを待つ
     data = await websocket.receive_text()
     input_data = WebSocketInputData(**json.loads(data))
     input_text = input_data.input_text
     title = input_data.title
+
+    # StreamChatClientを取得
+    client = get_stream_chat_client(title)
     messages = get_messages(title)
     former_node_id = messages[-1].get("id") if messages else None
     input_data.former_node_id = former_node_id

@@ -1,6 +1,7 @@
 import os
 import json
 import re
+from time import sleep
 from logging import getLogger
 import base64
 import asyncio
@@ -26,26 +27,26 @@ async def get_voice(text: str):
     return file_path
 
 
-logger = getLogger(__name__)
-
-
 # StreamChatClientを管理する辞書
 stream_chat_clients = {}
 
 
 def get_stream_chat_client(title: str):
     if title not in stream_chat_clients:
-        stream_chat_clients[title] = StreamChatClient()
+        stream_chat_clients[title] = StreamChatClient(title)
     return stream_chat_clients[title]
 
 
 # AIの会話応答を行うするクラス
-class StreamChatClient:
-    def __init__(self) -> None:
+class StreamChatClient():
+    def __init__(self, title: str) -> None:
+        self.title = title
         self.client = OpenAI()
+        self.temp_memory_user_request: str
         self.temp_memory: list[str] = []
         self.short_memory: list[str] = []  # 短期記憶(n=<7)
         self.long_memory: list[str] | None = None  # 長期記憶(from neo4j)
+        logger.info(f"short_memory: {self.short_memory}")
 
     # 短い文章で出力を返す（これ複数回で1回の返答）
     def streamchat(self, k: int, user_input: str | None = None, long_memory: list[str] | None = None, max_tokens: int = 240):
@@ -54,13 +55,12 @@ class StreamChatClient:
                         Continue to your previous sentences.
                         Don't reveal hidden information."""
         if user_input is None:
-            user_prompt = "continue it. If you can't continue, please type 'end'."  # より確実に、前の文章を継続するようにする。
+            user_prompt = f"""user: {self.temp_memory_user_request}
+                             "user: continue it."""  # より確実に、前の文章を継続するようにする。
+
         else:
-            user_prompt = f"""{user_input}
-            ----------------------------------------
-            Chat history:
-            {self.short_memory}
-            ----------------------------------------
+            self.temp_memory_user_request = user_input
+            user_prompt = f"""user: {user_input}
             """
 
         # long_memoryがある場合、それをuser_inputに追加する。
@@ -75,8 +75,10 @@ class StreamChatClient:
             ----------------------------------------
             """)
 
-        ai_prompt = "".join(self.temp_memory)  # 単純にこれまでの履歴を入れた場合、それに続けて生成される。
-        logger.info(f"ai_prompt: {ai_prompt}")
+        if self.short_memory:
+            ai_prompt = "\n".join(self.short_memory) + "\n----------------------------------------\n" + "".join(self.temp_memory)
+        else:
+            ai_prompt = "".join(self.temp_memory)   # 単純にこれまでの履歴を入れた場合、それに続けて生成される。
 
         messages = ChatPrompt(
             system_message=system_prompt,
@@ -97,7 +99,7 @@ class StreamChatClient:
 
     def closechat(self):
         # temp_memoryをshort_memoryに追加
-        self.short_memory.extend("".join(self.temp_memory))
+        self.short_memory.append("".join(self.temp_memory))
 
         # short_memoryが7個を超えたら、古いものから削除
         while len(self.short_memory) > 7:
@@ -106,6 +108,8 @@ class StreamChatClient:
         # temp_memoryとlong_memoryをリセット
         self.temp_memory = []
         self.long_memory = None
+        logger.info(f"client title: {self.title}")
+        logger.info(f"short_memory: {self.short_memory}")
 
     # テキストを終端記号で分割する関数
     def format_text(self, text):
@@ -158,7 +162,7 @@ class StreamChatClient:
         inside_code_block = False
 
         for i in range(k):
-            max_tokens = 80 if i == 0 else 240  # 初回のみ応答速度を上げるために、80で渡す。
+            max_tokens = 80 if i == 0 else 160 if i == 1 else 240  # 初回応答速度を上げるために、80で渡す。段階的に増加。
             input_text = input_data.input_text if i == 0 else None  # 初回のみ受け取ったテキストを渡す。
             response = self.streamchat(
                 k=k, user_input=input_text, max_tokens=max_tokens  # long_memory=self.long_memory
@@ -225,8 +229,14 @@ async def handle_code_block(code_block_content, websocket: WebSocket):
 async def _get_voice(text: str, websocket: WebSocket):
     text = text.replace(".", "、")  # 1. 2. のような箇条書きを、ポーズとして認識可能な1、2、に変換する。
     audio_path = await get_voice(text)
-    # ここで音声合成を0.1 sec待てばエラーが出ないかもしれない
-    if audio_path:
+
+    # 最大5秒間、ファイルが存在するか確認
+    for _ in range(50):  # 0.1秒 * 20回 = 2秒
+        if os.path.exists(audio_path):
+            break
+        sleep(0.1)
+
+    if os.path.exists(audio_path):
         with open(audio_path, "rb") as f:
             audio_data = f.read()
         # バイナリデータをBase64エンコードしてJSONに格納
@@ -238,5 +248,6 @@ async def _get_voice(text: str, websocket: WebSocket):
         }  # ここに送りたいテキストをセット
 
         await websocket.send_text(json.dumps(message))  # JSONとして送信
-
-        os.remove(audio_path)
+        os.remove(audio_path)   # 音声ファイルを削除
+    else:
+        logger.error("Failed to get voice after multiple attempts.")
