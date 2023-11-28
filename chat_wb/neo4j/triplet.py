@@ -3,18 +3,11 @@ import json
 from logging import getLogger
 import spacy
 from pydantic import BaseModel
-from langchain.chains import LLMChain, SequentialChain
-from langchain.chat_models import ChatOpenAI
-from langchain.prompts import ChatPromptTemplate
-from langchain.prompts.chat import (
-    AIMessagePromptTemplate,
-    HumanMessagePromptTemplate,
-    SystemMessagePromptTemplate,
-)
+from openai import AsyncOpenAI
 from chat_wb.models.neo4j import Node, Relation
 from chat_wb.main.prompt import (
     COREFERENCE_RESOLUTION_PROMPT,
-    EXTRACT_MULTITEMPORALTRIPLET_PROMPT,
+    EXTRACT_TRIPLET_PROMPT,
 )
 from chat_wb.neo4j.neo4j import (
     get_all_relationships,
@@ -23,6 +16,7 @@ from chat_wb.neo4j.neo4j import (
     get_related_nodes_by_relation,
     remove_suffix,
 )
+from openai_api.models import ChatPrompt
 from chat_wb.cache import RELATION_SETS
 from chat_wb.utils import split_japanese_text
 from utils.common import atimer
@@ -249,125 +243,84 @@ async def get_graph_from_triplet(text: str) -> tuple[list[dict], list[ResponseGr
     return triplets, graphs
 
 
-# 約1秒
-def coference_resolution_chain() -> LLMChain:
-    # tracer = LangChainTracer(project_name="coference_resolution_chain")
+client = AsyncOpenAI()
 
-    llm = ChatOpenAI(temperature=0.0, model="gpt-3.5-turbo-0613")
+
+@atimer
+async def coference_resolution(text: str, reference: str | None = None):
+    # prompt
     system_prompt = COREFERENCE_RESOLUTION_PROMPT
-    system_message_prompt = SystemMessagePromptTemplate.from_template(system_prompt)
-    user_prompt = """
-    {text}
-    """
-    human_message_prompt = HumanMessagePromptTemplate.from_template(user_prompt)
-    ai_prompt = """
-    reference:{reference}
-    """
-    ai_message_prompt = AIMessagePromptTemplate.from_template(ai_prompt)
-    messages_template = [
-        system_message_prompt,
-        human_message_prompt,
-        ai_message_prompt,
-    ]
+    user_prompt = f"{text}"
+    ai_prompt = f"reference:{reference}"    # 分割したテキストの参考にreferenceを渡していたが、JSONModeでほぼ不要になった。
+    messages = ChatPrompt(
+        system_message=system_prompt,
+        user_message=user_prompt,
+        assistant_message=ai_prompt,
+    ).create_messages()
 
-    prompt_template = ChatPromptTemplate.from_messages(messages_template)
-    chain = LLMChain(llm=llm, prompt=prompt_template, output_key="context")
-
-    return chain
-
-
-# 約2秒
-# function callingを利用しないのは、エラーを避けるため。
-def triplets_chain() -> LLMChain:
-    # tracer = LangChainTracer(project_name="triplet_chain")
-
-    llm = ChatOpenAI(temperature=0.0, model="gpt-3.5-turbo-0613")
-    system_prompt = EXTRACT_MULTITEMPORALTRIPLET_PROMPT
-    system_message_prompt = SystemMessagePromptTemplate.from_template(system_prompt)
-    user_prompt = "{context}"
-    human_message_prompt = HumanMessagePromptTemplate.from_template(user_prompt)
-    messages_template = [
-        system_message_prompt,
-        human_message_prompt,
-    ]
-
-    prompt_template = ChatPromptTemplate.from_messages(messages_template)
-    chain = LLMChain(llm=llm, prompt=prompt_template, output_key="triplets")
-
-    return chain
-
-
-# 約3秒
-def sequential_triplet_chain():
-    chain1 = coference_resolution_chain()
-    chain2 = triplets_chain()
-    sequential_chain = SequentialChain(
-        chains=[chain1, chain2],
-        input_variables=["text", "reference"],
-        output_variables=["triplets"],
+    # response生成
+    response = await client.chat.completions.create(
+        model="gpt-3.5-turbo-1106",
+        messages=messages,
+        temperature=0.0,
     )
-    return sequential_chain
+    return response.choices[0].message.content
+
+
+@atimer
+async def convert_to_triplets(text: str):
+    """example output "Mary is nurse. Tom married Mary. "
+    {
+    "Nodes": [
+        {"label": "Person", "name": "Mary", "properties": {"job": "nurse"}},
+        {"label": "Person", "name": "Tom", "properties": {}}
+    ],
+    "Relationships": [
+        {"start_node": "Tom", "end_node": "Mary", "type": "MARRIED_TO", "properties": {}}
+    ]
+    }
+    """
+    # prompt
+    system_prompt = EXTRACT_TRIPLET_PROMPT
+    user_prompt = f"{text}"
+    messages = ChatPrompt(
+        system_message=system_prompt,
+        user_message=user_prompt,
+    ).create_messages()
+
+    # response生成
+    response = await client.chat.completions.create(
+        model="gpt-3.5-turbo-1106",
+        messages=messages,
+        temperature=0.0,
+        response_format={"type": "json_object"},
+        seed=0,  # シード値固定した方が安定するかもしれない。
+    )
+    return response.choices[0].message.content
 
 
 async def run_sequential_triplet(text: str, reference: str):
-    chain = sequential_triplet_chain()
-    response = await chain.arun(text=text, reference=reference)
+    text = await coference_resolution(text=text, reference=reference)
+    response = await convert_to_triplets(text=text)
     return response
 
 
-# @atimer
 async def run_sequences(text: str) -> list[dict] | None:
-    # 一文に分割
-    tokens = split_japanese_text(text)
-    logger.info(f"tokens: {tokens}")
+    response = await run_sequential_triplet(text=text, reference=None)
 
-    # tripletを抽出(非同期処理)
-    tasks = [run_sequential_triplet(text=token, reference=text) for token in tokens]
-    responses = await asyncio.gather(*tasks)
+    try:
+        data = json.loads(response)
+    except json.JSONDecodeError:        # 有効なJSONでない場合の処理
+        logger.error(f"Invalid response for json.loads: {data}")
+        return None  # 出力なしの場合は、Noneを返す。単純質問は、Noneになる傾向。
 
-    # responseが文字列の場合等、json.loadsできない場合のエラーハンドリング
-    results = []
-    for token, item in zip(tokens, responses):  # tokenとresponseをzipで組み合わせる
-        try:
-            json_item = json.loads(item)
-            results.extend(json_item if isinstance(json_item, list) else [json_item])
-        except json.JSONDecodeError:
-            # 有効なJSONでない場合の処理
-            logger.error(f"Invalid response for json.loads: {item}")
+    # Nodeのnameから接尾語を削除
+    for node in data['Nodes']:
+        node['name'] = remove_suffix(node['name'])
+    # Relationshipsのstart_nodeとend_nodeに対してremove_suffixを適用
+    if 'Relationships' in data:
+        for relationship in data['Relationships']:
+            relationship['start_node'] = remove_suffix(relationship['start_node'])
+            relationship['end_node'] = remove_suffix(relationship['end_node'])
 
-    # subject, objectの最初の要素（名前）から接尾語を削除
-    if not results:
-        for data in results:
-            data["subject"][0] = remove_suffix(data["subject"][0])
-            data["object"][0] = remove_suffix(data["object"][0])
-    else:
-        results = None
-    logger.info(f"results: {results}")  # 出力なしの場合は、Noneを返す。単純質問は、Noneになる傾向。
-    return results
-
-
-# 以下、chain単体テスト用
-@atimer
-async def run_triplets(text: str) -> list[dict]:
-    # tokens = sent_tokenize(text)
-    nlp = spacy.load("ja_core_news_sm")
-    tokens = [sent.text for sent in nlp(text).sents]
-
-    chain = triplets_chain()
-    tasks = [chain.apredict(context=token) for token in tokens]
-    response = await asyncio.gather(*tasks)
-    result = [item for sublist in map(json.loads, response) for item in sublist]
-
-    return result
-
-
-# chain単体テスト用
-@atimer
-async def run_coferences(text: str) -> list[str]:
-    nlp = spacy.load("ja_core_news_sm")
-    tokens = [sent.text for sent in nlp(text).sents]
-
-    chain = coference_resolution_chain()
-    tasks = [chain.apredict(text=token, reference=tokens) for token in tokens]
-    response = await asyncio.gather(*tasks)
-    return response
+    return data

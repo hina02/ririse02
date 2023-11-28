@@ -59,6 +59,13 @@ output_format is {{output sentence}}
 """
 
 
+EXTRACT_TRIPLET_PROMPT = """
+output json format to neo4j without id. output format example is here.
+If len(Nodes) > 2, Relationship_types is required.
+{{Nodes: [{{"label", "name", "properties"}}],
+Relationships: [{{"start_node": "", "end_node": "", "type": "", "properties": {{}}}}]}}
+"""
+
 # tripletを抽出し、grpheのtypeを判定するプロンプト
 # ●●をどう思いますか？等の質問文に対しては、出力なしの傾向。
 # subject,objectをsubject_nameから、proper nounに指定したことで、嫁等よりも、人名が優先されるようになった。

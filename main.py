@@ -91,3 +91,24 @@ def read_root():
         </body>
     </html>
     """
+
+# test endpoint
+from chat_wb.neo4j.triplet import coference_resolution, convert_to_triplets, run_sequences, get_graph_from_triplet
+
+@app.get("/conference")
+async def conference_resolution_chain(text: str, reference: str):
+    return await coference_resolution(text, reference)
+
+@app.get("/triplets")
+async def triplets(text: str):
+    result = await convert_to_triplets(text)
+    logger.info(result)
+    return result
+
+@app.get("/run_sequences")
+async def run_sequences_api(text: str):
+    return await run_sequences(text)
+
+@app.get("/get_graph_from_triplet")
+async def get_graph_from_triplet_api(text: str):
+    return await get_graph_from_triplet(text)

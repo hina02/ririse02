@@ -37,7 +37,7 @@ def get_openai_client(request: Request):
 
     if user_id not in clients:
         clients[user_id] = OpenAIClient(user_id)
-        logging.info(f"initialize user_id: {user_id}")
+        logger.info(f"initialize user_id: {user_id}")
     return clients[user_id].client
 
 
@@ -48,7 +48,7 @@ async def get_async_openai_client(request: Request):
 
     if user_id not in clients:
         clients[user_id] = OpenAIClient(user_id)
-        logging.info(f"initialize user_id: {user_id}")
+        logger.info(f"initialize user_id: {user_id}")
     return clients[user_id].async_clinent
 
 
