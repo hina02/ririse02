@@ -3,7 +3,7 @@ import os
 import re
 from typing import Any
 
-from chat_wb.models.neo4j import Node, Relation
+from chat_wb.models.neo4j import Node, Relationships
 from neo4j import GraphDatabase
 
 # ロガー設定
@@ -81,18 +81,18 @@ def create_update_node(label: str, name: str, info: dict | None = None):
 
 
 # property要素について、上書きせずに、値を追加する関数。node_idを返す。
-def create_update_append_node(
-    label: str, name: str, property_name: str, property_value: str
-):
+def create_update_append_node(node: Node):
+    label = node.label
+    name = node.name
+    properties = node.properties
+
     with driver.session() as session:
         result = session.run(f"MATCH (n:{label} {{name: $name}}) RETURN n", name=name)
 
         # ノードが存在しない場合、作成する。
         if result.single() is None:
-            properties = {
-                "name": name,
-                property_name: [property_value],
-            }  # プロパティをリストとして初期化
+            # プロパティをリストとして初期化
+            properties["name"] = name
 
             # Cypherクエリを動的に作成する
             props_string = ", ".join([f"{k}: ${k}" for k in properties.keys()])
@@ -109,120 +109,100 @@ def create_update_append_node(
             logger.info(message)
             return {"status": "success", "message": message, "node_id": node_id}
 
-        # ノードが存在する場合、指定されたプロパティを更新する。
+        # ノードが存在し、新規プロパティがある場合、プロパティを更新する。（キーが重複する場合は追加）
         else:
-            update_query = f"""
-            MATCH (n:{label} {{name: $name}})
-            SET n.{property_name} = CASE 
-                WHEN n.{property_name} IS NULL THEN [$property_value] 
-                ELSE n.{property_name} + [$property_value] 
-            END
-            RETURN id(n) as node_id
-            """
-            result = session.run(update_query, name=name, property_value=property_value)
-            node_id = result.single()["node_id"]
+            if properties:
+                for property_name, property_value in properties.items():
+                    update_query = f"""
+                    MATCH (n:{label} {{name: $name}})
+                    SET n.{property_name} = CASE
+                        WHEN n.{property_name} IS NULL THEN [$property_value]
+                        ELSE apoc.coll.toSet(n.{property_name} + [$property_value])
+                    END
+                    RETURN id(n) as node_id
+                    """
+                    result = session.run(update_query, name=name, property_value=property_value)
+                    node_id = result.single()["node_id"]
 
-            message = f"Node {{{label}:{name}}} already exists.\nProperty updated."
-            logger.info(message)
-            return {"status": "success", "message": message, "node_id": node_id}
+                message = f"Node {{{label}:{name}}} already exists.\nProperty updated."
+                logger.info(message)
+                return {"status": "success", "message": message, "node_id": node_id}
 
 
 # optionのリレーションシップを作成する
-def create_update_relationship(
-    node1_id: int,
-    node2_id: int,
-    time: str | None,
-    relation_type: str,
-    content: str | None,
-):
-    # timeがNoneの時は、マジックワードを渡して管理する。
-    if time is None:
-        time = "base"
+def create_update_relationship(relationships: Relationships):
+    start_node_label = relationships.start_node_label
+    start_node = relationships.start_node
+    end_node_label = relationships.end_node_label
+    end_node = relationships.end_node
+    relation_type = relationships.type
+    properties = relationships.properties
 
     with driver.session() as session:
-        # 指定されたtime値でリレーションシップを検索
+        # 指定されたリレーションシップを検索
         existing_record = session.run(
             f"""
-            MATCH (n1)-[r:{relation_type}]->(n2)
-            WHERE r.time = $time AND id(n1) = $node1_id AND id(n2) = $node2_id
-            RETURN r.content as content
+            MATCH (n1:{start_node_label} {{name: $start_node}})-[r:{relation_type}]->(n2:{end_node_label} {{name: $end_node}})
+            RETURN r
         """,
-            node1_id=node1_id,
-            node2_id=node2_id,
-            time=time,
+            start_node=start_node,
+            end_node=end_node,
         ).single()
 
-        existing_contents = existing_record["content"] if existing_record else []
-
-        existing_contents.append(content)
-        # 重複を削除、Noneを削除
-        contents = list(set(existing_contents))
-        contents = list(filter(None, contents))
-
-        # 既存のリレーションシップが存在する場合、内容を更新
+        # 既存のリレーションシップが存在し、新規プロパティがある場合、内容を更新
         if existing_record:
-            session.run(
-                f"""
-                MATCH (n1)-[r:{relation_type}]->(n2)
-                WHERE r.time = $time AND id(n1) = $node1_id AND id(n2) = $node2_id
-                SET r.time = $time, r.content = $contents
-            """,
-                node1_id=node1_id,
-                node2_id=node2_id,
-                time=time,
-                contents=contents,
-            )
+            if properties:
+                session.run(
+                    f"""
+                    MATCH (n1:{start_node_label} {{name: $start_node}})-[r:{relation_type}]->(n2:{end_node_label} {{name: $end_node}})
+                    SET r += $properties
+                """,
+                    start_node=start_node,
+                    end_node=end_node,
+                    properties=properties,
+                )
 
-            message = f"""Relationship {{Node1:{node1_id}}}-{{{relation_type}:{time}}}
-                            ->{{Node2:{node2_id}}} already exists.\nProperty updated:{{'contents':{contents}}}"""
-            logger.info(message)
-            return {"status": "success", "message": message}
+                message = f"""Relationship {{Node1:{start_node}}}-{{{relation_type}}}
+                                ->{{Node2:{end_node}}} already exists.\nProperty updated:{{'properties':{properties}}}"""
+                logger.info(message)
+                return {"status": "success", "message": message}
 
         # リレーションシップが存在しない場合、新しいリレーションシップを作成
         else:
-            session.run(
-                f"""
-                MATCH (n1), (n2)
-                WHERE id(n1) = $node1_id AND id(n2) = $node2_id
-                CREATE (n1)-[:{relation_type} {{time: $time, content: $contents}}]->(n2)
-            """,
-                node1_id=node1_id,
-                node2_id=node2_id,
-                time=time,
-                contents=contents,
-            )
-
-            message = f"""Relationship {{Node1:{node1_id}}}-{{{relation_type}:{time}}}
-                            ->{{Node2:{node2_id}}} created.\nProperty:{{'contents':{contents}}}"""
-            logger.info(message)
-            return {"status": "success", "message": message}
+            if properties:  # プロパティが存在する場合
+                session.run(
+                    f"""
+                    MATCH (n1:{start_node_label} {{name: $start_node}}), (n2:{end_node_label} {{name: $end_node}})
+                    CREATE (n1)-[:{relation_type} {{properties: $properties}}]->(n2)
+                    """,
+                    start_node=start_node,
+                    end_node=end_node,
+                    properties=properties,
+                )
+            else:  # プロパティが存在しない場合
+                session.run(
+                    f"""
+                    MATCH (n1:{start_node_label} {{name: $start_node}}), (n2:{end_node_label} {{name: $end_node}})
+                    CREATE (n1)-[:{relation_type}]->(n2)
+                    """,
+                    start_node=start_node,
+                    end_node=end_node,
+                )
 
 
 # ノードを削除する
-def delete_node(label: str = None, name: str = None, node_id: int = None):
+def delete_node(label: str = None, name: str = None):
     with driver.session() as session:
-        # IDでノードを削除する
-        if node_id:
-            result = session.run(
-                "MATCH (n) WHERE id(n) = $node_id DETACH DELETE n RETURN count(n) as deleted_count",
-                node_id=node_id,
-            )
-            deleted_count = result.single().get("deleted_count")
-            if deleted_count > 0:
-                return logger.info(message=f"Node {{node_id:{node_id}}} deleted.")
-            else:
-                return logger.info(message=f"Node {{node_id:{node_id}}} not found.")
         # ラベルと名前でノードを削除する
+        result = session.run(
+            f"MATCH (n:{label} {{name: $name}}) DETACH DELETE n RETURN count(n) as deleted_count",
+            name=name,
+        )
+        deleted_count = result.single().get("deleted_count")
+        if deleted_count > 0:
+            return logger.info(message=f"Node {{{label}:{name}}} deleted.")
         else:
-            result = session.run(
-                f"MATCH (n:{label} {{name: $name}}) DETACH DELETE n RETURN count(n) as deleted_count",
-                name=name,
-            )
-            deleted_count = result.single().get("deleted_count")
-            if deleted_count > 0:
-                return logger.info(message=f"Node {{{label}:{name}}} deleted.")
-            else:
-                return logger.info(message=f"Node {{{label}:{name}}} not found.")
+            return logger.info(message=f"Node {{{label}:{name}}} not found.")
 
 
 # IDをもとにリレーションシップを削除する
@@ -243,6 +223,7 @@ def delete_relationship(relationship_id: int):
         return logger.info(message=f"Relationship_id {{{relationship_id}}} deleted.")
     else:
         return logger.info(message=f"Relationship_id {{{relationship_id}}} not found.")
+
 
 # 指定した範囲のノードのプロパティを取得する
 def get_node_properties(
@@ -341,204 +322,76 @@ def get_node_names(label: str) -> list[str]:
     return names
 
 
-# Use in Triplet
-def remove_suffix(name: str) -> str:
-    # 正規表現パターンで、接尾語を列挙し、それらを末尾から削除する
-    jk_suffixes = [
-        "りん",
-        "ぴ",
-        "っぴ",
-        "ゆん",
-        "ぽん",
-        "むー",
-        "みー",
-        "先生",
-        "せんせえ",
-        "せんせい",
-        "先輩",
-        "せんぱい",
-        "後輩",
-    ]
-    otaku_suffixes = [
-        "たん",
-        "たそ",
-        "ほん",
-        "しぃ",
-        "ちゃま",
-        "りり",
-        "氏",
-        "師匠",
-        "師",
-        "老師",
-        "殿",
-        "どの",
-        "姫",
-        "ひめ",
-        "殿下",
-        "陛下",
-        "閣下",
-        "太郎",
-        "たろー",
-        "きち",
-    ]  # prefix "同志",
-    role_suffixes = [
-        "組長",
-        "会長",
-        "社長",
-        "副社長",
-        "部長",
-        "課長",
-        "係長",
-        "監督",
-        "選手",
-        "将軍",
-        "博士",
-        "教授",
-        "マネージャー",
-        "スタッフ",
-        "メンバー",
-        "オーナー",
-        "リーダー",
-        "ディレクター",
-        "オフィサー",
-        "一等兵",
-        "上等兵",
-        "伍長",
-        "軍曹",
-        "曹長",
-        "少尉",
-        "中尉",
-        "大尉",
-        "少佐",
-        "中佐",
-        "大佐",
-        "准将",
-        "少将",
-        "中将",
-        "大将",
-        "元帥",
-        "大元帥",
-        "海兵",
-        "上級海兵",
-        "提督",
-    ]
-    all_suffixes = (
-        [
-            "さん",
-            "くん",
-            "君",
-            "ちゃん",
-            "さま",
-            "様",
-        ]
-        + jk_suffixes
-        + otaku_suffixes
-        + role_suffixes
-    )
-    pattern = r"(" + "|".join(all_suffixes) + ")$"
-    return re.sub(pattern, "", name)
-
-
 # 指定ノードの情報
 # nameがnameに一致、或いはname_variationに含まれるノードのプロパティを取得する
 # Personの場合は、name_variationsを併せて検索する。
-def get_node(name: str, label: str | None = None) -> list[Node] | None:
+async def get_node(name: str, label: str | None = None) -> list[Node] | None:
     with driver.session() as session:
         if label is None:
             result = session.run(
-                "MATCH (n) WHERE $name IN n.name_variations OR n.name = $name RETURN id(n) as node_id, properties(n) as properties",
+                "MATCH (n) WHERE $name IN n.name_variations OR n.name = $name RETURN properties(n) as properties",
                 name=name,
             )
         elif label == "Person":  # Personの場合は、name_variationsを併せて検索する
-            name = remove_suffix(name)  # 接尾語を削除する
             result = session.run(
-                "MATCH (n:Person) WHERE $name IN n.name_variations OR n.name = $name RETURN id(n) as node_id, properties(n) as properties",
+                "MATCH (n:Person) WHERE $name IN n.name_variations OR n.name = $name RETURN properties(n) as properties",
                 name=name,
             )
         else:
             result = session.run(
-                f"MATCH (n:{label} {{name: $name}}) RETURN id(n) as node_id, properties(n) as properties",
+                f"MATCH (n:{label} {{name: $name}}) RETURN properties(n) as properties",
                 name=name,
             )
         nodes = []
         for record in result:
-            nodes.append({"id": record["node_id"], "properties": record["properties"]})
+            properties = record["properties"]
+            properties.pop("name", None)  # 'name'をpropertiesから除去
+            node = Node(label=label, name=name, properties=record["properties"])
+            nodes.append(node)
         return nodes if nodes else None
 
 
-# ノードから特定のリレーションタイプを持つノードを取得する
-def get_related_nodes_by_relation(
-    label: str, name: str, relation_type: str
-) -> list[Node] | None:
-    with driver.session() as session:
-        result = session.run(
-            f"""
-            MATCH (n:{label} {{name: $name}})-[r:{relation_type}]->(node)
-            RETURN id(node) as node_id, node.name as node_name, labels(node) as node_labels, node as properties
-        """,
-            name=name,
-        )
-        nodes = []
-        processed_node_ids = set()  # 処理済みのノードIDを保持するための集合
-        for record in result:
-            node_id = record["node_id"]
-            if node_id not in processed_node_ids:  # このノードIDが処理済みかどうかをチェック
-                node = Node(
-                    id=record["node_id"],
-                    name=record["node_name"],
-                    label=record["node_labels"][0] if record["node_labels"] else None,
-                    properties=dict(record["properties"]),
-                )
-                nodes.append(node)
-                processed_node_ids.add(node_id)  # このノードIDを処理済みとして記録します
-        return nodes
-
-
 # ノードからすべてのリレーションとプロパティ（content）、終点ノードを得る
-def get_all_relationships(label: str, name: str) -> list[Relation] | None:
+async def get_all_relationships(label: str, name: str) -> list[Relationships] | None:
     with driver.session() as session:
         result = session.run(
             f"""
             MATCH (a:{label} {{name: $name}})-[r]->(b)
-            RETURN  id(r) as relationship_id, type(r) as relationship_type, r.content as content, r.time as time, id(b) as node2_id, b.name as name2
+            RETURN  type(r) as relationship_type, r.properties as properties, b.name as name2
         """,
             name=name,
         )
         relationships = []
         for record in result:
-            relation = Relation(
-                id=record["relationship_id"],
+            relation = Relationships(
                 type=record["relationship_type"],
-                content=record["content"],
-                time=record.get("time", None),
-                node1=name,
-                node2=record["name2"],
+                start_node=name,
+                end_node=record["name2"],
+                properties=record["properties"],
             )
             relationships.append(relation)
         return relationships if relationships else None
 
 
 # ノードとノードの間にあるすべてのリレーションとプロパティ（content）を得る
-def get_all_relationships_between(
+async def get_all_relationships_between(
     label1: str, label2: str, name1: str, name2: str
-) -> list[Relation] | None:
+) -> list[Relationships] | None:
     with driver.session() as session:
         result = session.run(
             f"""
       MATCH (a:{label1} {{name: $name1}})-[r]->(b:{label2} {{name: $name2}})
-      RETURN  id(r) as relationship_id, type(r) as relationship_type, r.content as content, r.time as time""",
+      RETURN  type(r) as relationship_type, r.properties as properties""",
             name1=name1,
             name2=name2,
         )
         relationships = []
         for record in result:
-            relation = Relation(
-                id=record["relationship_id"],
+            relation = Relationships(
                 type=record["relationship_type"],
-                content=record["content"],
-                time=record["time"],
-                node1=name1,
-                node2=name2,
+                start_node=name1,
+                end_node=name2,
+                properties=record["properties"],
             )
             relationships.append(relation)
         return relationships if relationships else None

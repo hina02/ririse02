@@ -7,6 +7,7 @@ from functools import lru_cache
 # from chat_wb.neo4j.triplet import run_sequences
 from chat_wb.models.wb import WebSocketInputData
 from openai_api.common import get_embedding
+from chat_wb.models.neo4j import Triplets
 
 # ロガー設定
 logger = getLogger(__name__)
@@ -136,28 +137,16 @@ def query_vector(query: str, label: str, k: int = 3):
     return nodes
 
 
-async def store_to_neo4j(
+async def store_message(
     input_data: WebSocketInputData,
     ai_response: str,
-    user_input_entity: list[dict] | None = None,
-    create_time: float | None = None,
+    user_input_entity: Triplets | None = None,
 ) -> int:
     title = input_data.title
     user_input = input_data.input_text
     former_node_id = input_data.former_node_id
-    create_time = time.time() if create_time is None else create_time
+    create_time = time.time()
     update_time = create_time
-
-    # エンティティ抽出はいったん保留
-    # entityを抽出(user_input_entity
-    # user_input_entity = (
-    #     await run_sequences(user_input)
-    #     if user_input_entity is None
-    #     else user_input_entity
-    # )
-
-    # ai_response_entity = await run_sequences(ai_response)
-    ai_response_entity = None
 
     with driver.session() as session:
         # 親ノードTitleが無ければ、作成する
@@ -183,13 +172,14 @@ async def store_to_neo4j(
                 title=title,
                 vector=pa_vector,
             )
+            logger.info(f"Title Node created: {title}")
 
         # メッセージノードを作成
         vector = get_embedding(ai_response)  # どれを登録するべきか悩ましい
         result = session.run(
             """CREATE (b:Message {create_time: $create_time,
                              user_input: $user_input, user_input_entity: $user_input_entity,
-                             ai_response: $ai_response, ai_response_entity: $ai_response_entity})
+                             ai_response: $ai_response})
                              WITH b
                              CALL db.create.setVectorProperty(b, 'embedding', $vector)
                              YIELD node
@@ -198,10 +188,10 @@ async def store_to_neo4j(
             user_input=user_input,
             user_input_entity=json.dumps(user_input_entity),
             ai_response=ai_response,
-            ai_response_entity=json.dumps(ai_response_entity),
             vector=vector,
         )
         new_node_id = result.single()["node_id"]
+        logger.info(f"Message Node created: {new_node_id}")
 
         # 親ノード(Title)からのリレーション(CONTAIN)を作成する　動いてない？？
         session.run(
@@ -220,10 +210,11 @@ async def store_to_neo4j(
                 new_node_id=new_node_id,
                 former_node_id=former_node_id,
             )
+            logger.info(f"Message Node Relation created: {new_node_id}")
     return new_node_id
 
 
-# chatGPTのjsonファイルから、Neo4jに保存するデータを抽出する
+# chatGPTのjsonファイルから、Neo4jに保存するデータを抽出する 未アップデート
 def data_from_chatGPT(file_path: str):
     with open(file_path, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -277,6 +268,6 @@ def store_data_from_chatGPT(file_path: str):
             user_input = conversation["user_input"]
             ai_response = conversation["ai_response"]
             create_time = conversation["create_time"]
-            former_node_id = store_to_neo4j(
+            former_node_id = store_message(
                 title, user_input, ai_response, former_node_id, create_time
             )

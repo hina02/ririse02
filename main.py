@@ -93,7 +93,7 @@ def read_root():
     """
 
 # test endpoint
-from chat_wb.neo4j.triplet import coference_resolution, convert_to_triplets, run_sequences, get_graph_from_triplet
+from chat_wb.neo4j.triplet import coference_resolution, convert_to_triplets, run_sequences, get_memory_from_triplet, store_memory_from_triplet
 
 @app.get("/conference")
 async def conference_resolution_chain(text: str, reference: str):
@@ -109,6 +109,12 @@ async def triplets(text: str):
 async def run_sequences_api(text: str):
     return await run_sequences(text)
 
-@app.get("/get_graph_from_triplet")
-async def get_graph_from_triplet_api(text: str):
-    return await get_graph_from_triplet(text)
+@app.get("/get_memory_from_triplet")
+async def get_memory_from_triplet_api(text: str):
+    triplets = await run_sequences(text)
+    return await get_memory_from_triplet(triplets)
+
+@app.get("/store_memory_from_triplet")
+async def store_memory_from_triplet_api(text: str):
+    triplets = await run_sequences(text)
+    return store_memory_from_triplet(triplets)

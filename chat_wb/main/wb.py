@@ -9,7 +9,8 @@ from fastapi import WebSocket
 from openai import OpenAI
 from openai_api.models import ChatPrompt
 from chat_wb.voice.text2voice import playVoicePeak
-from chat_wb.neo4j.triplet import get_graph_from_triplet
+from chat_wb.neo4j.triplet import run_sequences, get_memory_from_triplet, store_memory_from_triplet
+from chat_wb.models.neo4j import Triplets
 from chat_wb.models.wb import WebSocketInputData
 
 logger = getLogger(__name__)
@@ -46,6 +47,7 @@ class StreamChatClient():
         self.temp_memory: list[str] = []
         self.short_memory: list[str] = []  # 短期記憶(n=<7)
         self.long_memory: list[str] | None = None  # 長期記憶(from neo4j)
+        self.user_input_entity: Triplets | None = None  # ユーザー入力から抽出したTriplets
         logger.info(f"short_memory: {self.short_memory}")
 
     # 短い文章で出力を返す（これ複数回で1回の返答）
@@ -139,18 +141,35 @@ class StreamChatClient():
 
         return sentences
 
-    # websocketに対応して、triplet, graphを送信する関数
-    async def wb_get_graph_from_triplet(self, text: str, websocket: WebSocket):
-        # run_sequenceを一時停止
-        # result = await get_graph_from_triplet(text)
+    # websocketに対応して、tripletの抽出、保存を行い、検索結果を送信する関数
+    async def wb_get_memory_from_triplet(self, text: str, websocket: WebSocket):
+        # textからTriplets(list[Node], list[Relationship])を抽出
+        triplets = await run_sequences(text)
+        logger.info(f"triplets: {triplets}")
+        if triplets is None:
+            return None  # 出力なしの場合は、Noneを返す。
+
+        # Tripletsから、propertiesを除いて、store_messageに渡すため、selfに格納。
+        nodes = triplets.nodes
+        for node in nodes:
+            node.properties = None
+        relations = triplets.relationships
+        for relation in relations:
+            relation.properties = None
+        self.user_input_entity = Triplets(nodes=nodes, relationships=relations)
+        logger.info(f"user_input_entity: {self.user_input_entity}")
+
+        # Neo4jから、Tripletsに含まれるノードと関係を取得
+        result = await get_memory_from_triplet(text)
         result = None
         if result is None:
             return None
-        triplet, graph = result
-        # globalのnode_infosを更新し、wb_generate_audioで使えるようにする。
-        self.long_memory = graph
-        logger.info(f"triplet: {triplet}")
-        logger.info(f"graph: {graph}")
+        self.long_memory = result
+        logger.info(f"long_memory: {self.long_memory}")
+
+        # TripletsをNeo4jに保存
+        store_memory_from_triplet(triplets)
+
 
     # テキスト生成から音声合成、再生までを統括する関数
     async def wb_generate_audio(
@@ -202,17 +221,7 @@ class StreamChatClient():
                 else:
                     await _get_voice(text, websocket)
 
-        results = "\n".join(self.temp_memory)
         logger.info(f"temp_memory: {self.temp_memory}")
-        self.closechat()  # チャットを終了し、temp_memoryをshort_memoryに移す。
-        return results
-
-
-# Neo4jに保存
-# theme、summary、entity
-# summary 作成
-# entity  作成
-# full_text = {"User": input_text, "Ririse": responses}
 
 
 # コードブロックテキストをWebSoketで送り返す。
