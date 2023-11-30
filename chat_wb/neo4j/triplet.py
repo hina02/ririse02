@@ -81,15 +81,16 @@ async def convert_to_triplets(text: str):
 
 async def run_sequences(text: str, reference: str | None = None) -> Triplets | None:
     text = await coference_resolution(text=text, reference=reference)
-    response = await convert_to_triplets(text=text)
+    response_json = await convert_to_triplets(text=text)
 
     try:
-        triplets = json.loads(response)
+        response = json.loads(response_json)
     except json.JSONDecodeError:        # 有効なJSONでない場合の処理
-        logger.error(f"Invalid response for json.loads: {triplets}")
+        logger.error(f"Invalid response for json.loads: {response}")
         return None  # 出力なしの場合は、Noneを返す。単純質問は、Noneになる傾向。
-
-    return Triplets.create(triplets)
+    triplets = Triplets.create(response)
+    logger.info(f"triplets: {triplets}")
+    return triplets
 
 
 @atimer
@@ -113,18 +114,17 @@ async def get_memory_from_triplet(triplets: Triplets) -> tuple[Triplets, Triplet
                 relationship.end_node))
 
     responses = await asyncio.gather(*tasks)
-
     # 結果を、nodesとrelationsに整理する。
     nodes = []
-    relations = []
+    relationships = []
     for response in responses:
         if response and isinstance(response[0], Node):
             nodes.extend(response)
         elif response and isinstance(response[0], Relationships):
-            relations.extend(response)
-    print(f"nodes: {nodes}")
-    print(f"relations: {relations}")
-    query_results = Triplets(nodes=nodes, relations=relations)
+            relationships.extend(response)
+    logger.info(f"nodes: {nodes}")
+    logger.info(f"relations: {relationships}")
+    query_results = Triplets(nodes=nodes, relationships=relationships)
 
     return query_results
 

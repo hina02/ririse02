@@ -18,68 +18,6 @@ driver = GraphDatabase.driver(uri, auth=(username, password))
 
 
 # ノードの更新
-# ノードが存在しない場合、ノードを作成する
-# ノードが存在する場合、ノードのプロパティを更新する
-# 複数のラベルを指定する場合、label = "Vendor:Organization"。
-def create_update_node(label: str, name: str, info: dict | None = None):
-    # None、空のリスト、空の辞書を削除する（上書き防止のため）
-    if info is not None:
-        info = {k: v for k, v in info.items() if v is not None and v != [] and v != {}}
-
-    with driver.session() as session:
-        result = session.run(f"MATCH (n:{label} {{name: $name}}) RETURN n", name=name)
-        # ノードが存在しない場合、作成する。
-        if result.single() is None:
-            properties = {"name": name}
-
-            # 人名の場合は、姓名を分けて登録する。
-            if label == "Person":
-                from namedivider import BasicNameDivider
-
-                divider = BasicNameDivider()
-                divided_name = divider.divide_name(name).to_dict()
-                name_variations = [
-                    n
-                    for n in [divided_name.get("family"), divided_name.get("given")]
-                    if n is not None
-                ]
-                properties["name_variations"] = name_variations
-
-            # info 辞書が渡された場合、その内容を properties に追加する
-            if info:
-                properties.update(info)
-
-            # Cypherクエリを動的に作成する
-            props_string = ", ".join([f"{k}: ${k}" for k in properties.keys()])
-            session.run(f"CREATE (:{label} {{{props_string}}})", **properties)
-
-            message = f"Node {{{label}:{name}}} created."
-            logger.info(message)
-            return {"status": "success", "message": message}
-
-        # ノードが存在する場合、プロパティを更新する。
-        else:
-            if info:
-                session.run(
-                    f"MATCH (n:{label} {{name: $name}}) SET n += $props",
-                    name=name,
-                    props=info,
-                )
-                result = session.run(
-                    f"MATCH (n:{label} {{name: $name}}) RETURN properties(n) as updated_properties",
-                    name=name,
-                )
-                updated_properties = result.single().get("updated_properties")
-
-                message = f"Node {{{label}:{name}}} already exists.\nProperty updated:{updated_properties}."
-                logger.info(message)
-                return {"status": "success", "message": message}
-            else:
-                message = f"Node {{{label}:{name}}} already exists."
-                logger.info(message)
-                return {"status": "success", "message": message}
-
-
 # property要素について、上書きせずに、値を追加する関数。node_idを返す。
 def create_update_append_node(node: Node):
     label = node.label
@@ -325,23 +263,12 @@ def get_node_names(label: str) -> list[str]:
 # 指定ノードの情報
 # nameがnameに一致、或いはname_variationに含まれるノードのプロパティを取得する
 # Personの場合は、name_variationsを併せて検索する。
-async def get_node(name: str, label: str | None = None) -> list[Node] | None:
+async def get_node(label: str, name: str) -> list[Node] | None:
     with driver.session() as session:
-        if label is None:
-            result = session.run(
-                "MATCH (n) WHERE $name IN n.name_variations OR n.name = $name RETURN properties(n) as properties",
-                name=name,
-            )
-        elif label == "Person":  # Personの場合は、name_variationsを併せて検索する
-            result = session.run(
-                "MATCH (n:Person) WHERE $name IN n.name_variations OR n.name = $name RETURN properties(n) as properties",
-                name=name,
-            )
-        else:
-            result = session.run(
-                f"MATCH (n:{label} {{name: $name}}) RETURN properties(n) as properties",
-                name=name,
-            )
+        result = session.run(
+            f"MATCH (n:{label}) WHERE $name IN n.name_variations OR n.name = $name RETURN properties(n) as properties",
+            name=name,
+        )
         nodes = []
         for record in result:
             properties = record["properties"]
@@ -357,7 +284,7 @@ async def get_all_relationships(label: str, name: str) -> list[Relationships] | 
         result = session.run(
             f"""
             MATCH (a:{label} {{name: $name}})-[r]->(b)
-            RETURN  type(r) as relationship_type, r.properties as properties, b.name as name2
+            RETURN  type(r) as relationship_type, r.properties as properties, b.label as label2, b.name as name2
         """,
             name=name,
         )
@@ -368,6 +295,8 @@ async def get_all_relationships(label: str, name: str) -> list[Relationships] | 
                 start_node=name,
                 end_node=record["name2"],
                 properties=record["properties"],
+                start_node_label=label,
+                end_node_label=record["label2"],
             )
             relationships.append(relation)
         return relationships if relationships else None
@@ -395,3 +324,85 @@ async def get_all_relationships_between(
             )
             relationships.append(relation)
         return relationships if relationships else None
+
+
+# ----------------------------------------------------------------
+# Name variation Integration
+def integrate_nodes(node1: Node, node2: Node):
+    """ノード2つを選択して、名前、プロパティ、リレーションシップを統合する。確実に確認してから削除すべきなので、削除は別に行う。"""
+    integrate_node_names(node1, node2)
+    integrate_node_properties(node1, node2)
+    integrate_relationships(node1, node2)
+
+
+# Use neo4j apoc plugin (neo4j aura db pre-installed)
+def integrate_node_names(node1: Node, node2: Node):
+    with driver.session() as session:
+        result = session.run(
+            f"""
+            MATCH (n1:{node1.label} {{name: $name1}}), (n2:{node2.label} {{name: $name2}})
+            SET n1.name_variation = CASE
+                WHEN n1.name_variation IS NULL THEN [n1.name, n2.name]
+                ELSE apoc.coll.toSet(n1.name_variation + [n1.name, n2.name])
+            END
+            RETURN properties(n1)
+            """,
+            name1=node1.name,
+            name2=node2.name,
+        )
+        logger.info(result.single()[0])
+
+
+def integrate_node_properties(node1: Node, node2: Node):
+    with driver.session() as session:
+        # n1のプロパティを取得
+        result1 = session.run(
+            f"MATCH (n1:{node1.label} {{name: $name1}}) RETURN properties(n1) AS props1",
+            name1=node1.name,
+        )
+        props1 = result1.single()["props1"]
+
+        # n2のプロパティを取得
+        result2 = session.run(
+            f"MATCH (n2:{node2.label} {{name: $name2}}) RETURN properties(n2) AS props2",
+            name2=node2.name,
+        )
+        props2 = result2.single()["props2"]
+
+        # 同じキーの値をリストに統合し、重複を避ける
+        for key in set(props1.keys()).intersection(props2.keys()):
+            props1[key] = list(set(props1[key] + props2[key]))
+
+        # 統合したプロパティをn1にセット
+        result = session.run(
+            f"MATCH (n1:{node1.label} {{name: $name1}}) SET n1 = $props RETURN properties(n1)",
+            name1=node1.name,
+            props=props1,
+        )
+        logger.info(result.single()[0])
+
+
+def integrate_relationships(node1: Node, node2: Node):
+    with driver.session() as session:
+        # node2終点のリレーションシップをnode1に移す
+        session.run(
+            f"""
+            MATCH (n2:{node2.label} {{name: $name2}})-[r]->()
+            MATCH (n1:{node1.label} {{name: $name1}})
+            CALL apoc.refactor.to(n1, r) YIELD input, output
+            DELETE n2
+            """,
+            name1=node1.name,
+            name2=node2.name,
+        )
+        # node2開始点のリレーションシップをnode1に移す
+        session.run(
+            f"""
+            MATCH (n2:{node2.label} {{name: $name2}})<-[r]-()
+            MATCH (n1:{node1.label} {{name: $name1}})
+            CALL apoc.refactor.from(n1, r) YIELD input, output
+            DELETE n2
+            """,
+            name1=node1.name,
+            name2=node2.name,
+        )
