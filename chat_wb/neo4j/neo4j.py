@@ -260,6 +260,112 @@ def get_node_names(label: str) -> list[str]:
     return names
 
 
+# Title、Messageを除くすべてのノードのラベルと名前を取得する
+def get_all_nodes() -> list[Node]:
+    nodes = []
+
+    with driver.session() as session:
+        result = session.run("MATCH (n) WHERE NOT 'Title' IN labels(n) AND NOT 'Message' IN labels(n) RETURN labels(n) as label, n.name as name")
+        for record in result:
+            node = Node(label=record["label"][0], name=record["name"], properties=None)
+            nodes.append(node)
+    return nodes
+
+
+# Title、Messageを除くすべてのリレーションシップのタイプと、始点ノード・終点ノードの名前を取得する
+def get_all_relationships() -> list[str]:
+    relationships = []
+
+    with driver.session() as session:
+        result = session.run(
+            """
+            MATCH (n)-[r]->(m)
+            WHERE NOT 'Title' IN labels(n) AND NOT 'Message' IN labels(n) AND NOT 'Title' IN labels(m) AND NOT 'Message' IN labels(m)
+            RETURN type(r) AS type, n.name as start_node, m.name as end_node
+            """
+        )
+        for record in result:
+            relationship = Relationships(type=record["type"], start_node=record["start_node"], end_node=record["end_node"], properties=None, start_node_label=None, end_node_label=None)
+            relationships.append(relationship)
+
+    return relationships
+
+
+# Title（title）、Message（user_input, ai_response）のノードを取得する。
+def get_message_nodes() -> list[Node]:
+    nodes = []
+
+    with driver.session() as session:
+        # Title ラベルのノードを取得
+        result_title = session.run("MATCH (n) WHERE 'Title' IN labels(n) RETURN labels(n) as label, n.title as title")
+        for record in result_title:
+            name = record["title"]
+            if name:
+                node = Node(label=record["label"][0], name=record["title"], properties=None)
+                nodes.append(node)
+
+        # Message ラベルのノードを取得
+        result_message = session.run("MATCH (n) WHERE 'Message' IN labels(n) RETURN labels(n) as label, n.user_input as user_input, n.ai_response as ai_response")
+        for record in result_message:
+            properties = {"ai_response": record["ai_response"]}
+            name = record["user_input"]
+            if name:
+                node = Node(label=record["label"][0], name=record["user_input"], properties=properties)
+                nodes.append(node)
+
+    return nodes
+
+
+# Title（title）、Message（user_input）起点のリレーションシップのタイプと、始点ノード・終点ノードの名前を取得する
+def get_message_relationships() -> list[Relationships]:
+    relationships = []
+
+    with driver.session() as session:
+        # Title -> Messageのリレーションシップを取得
+        result_title = session.run(
+            """
+            MATCH (n:Title)-[r:CONTAIN]->(m:Message)
+            RETURN type(r) AS type, n.title as start_node, m.user_input as end_node
+            """
+        )
+        for record in result_title:
+            start_node = record["start_node"]
+            end_node = record["end_node"]
+            if start_node and end_node:
+                relationship = Relationships(type=record["type"], start_node=record["start_node"], end_node=record["end_node"], properties=None, start_node_label="Title", end_node_label=None)
+                relationships.append(relationship)
+
+        # Message -> Messageのリレーションシップを取得
+        result_message = session.run(
+            """
+            MATCH (n:Message)-[r:PRECEDES|FOLLOW]->(m:Message)
+            RETURN type(r) AS type, n.user_input as start_node, m.user_input as end_node
+            """
+        )
+        for record in result_message:
+            start_node = record["start_node"]
+            end_node = record["end_node"]
+            if start_node and end_node:
+                relationship = Relationships(type=record["type"], start_node=record["start_node"], end_node=record["end_node"], properties=None, start_node_label="Message", end_node_label=None)
+                relationships.append(relationship)
+
+        # Message ラベルのノードから始まるリレーションシップを取得
+        result_message = session.run(
+            """
+            MATCH (n:Message)-[r]->(m)
+            RETURN type(r) AS type, n.user_input as start_node, m.name as end_node
+            """
+        )
+        for record in result_message:
+            start_node = record["start_node"]
+            end_node = record["end_node"]
+            if start_node and end_node:
+                relationship = Relationships(type=record["type"], start_node=record["start_node"], end_node=record["end_node"], properties=None, start_node_label="Message", end_node_label=None)
+                relationships.append(relationship)
+
+    return relationships
+
+
 # 指定ノードの情報
 # nameがnameに一致、或いはname_variationに含まれるノードのプロパティを取得する
 # Personの場合は、name_variationsを併せて検索する。
@@ -279,7 +385,7 @@ async def get_node(label: str, name: str) -> list[Node] | None:
 
 
 # ノードからすべてのリレーションとプロパティ（content）、終点ノードを得る
-async def get_all_relationships(label: str, name: str) -> list[Relationships] | None:
+async def get_node_relationships(label: str, name: str) -> list[Relationships] | None:
     with driver.session() as session:
         result = session.run(
             f"""
@@ -303,7 +409,7 @@ async def get_all_relationships(label: str, name: str) -> list[Relationships] | 
 
 
 # ノードとノードの間にあるすべてのリレーションとプロパティ（content）を得る
-async def get_all_relationships_between(
+async def get_node_relationships_between(
     label1: str, label2: str, name1: str, name2: str
 ) -> list[Relationships] | None:
     with driver.session() as session:

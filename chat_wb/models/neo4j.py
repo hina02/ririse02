@@ -1,6 +1,6 @@
 import re
 from logging import getLogger
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
 
 # ロガー設定
 logger = getLogger(__name__)

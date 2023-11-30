@@ -9,8 +9,8 @@ from chat_wb.main.prompt import (
     EXTRACT_TRIPLET_PROMPT,
 )
 from chat_wb.neo4j.neo4j import (
-    get_all_relationships,
-    get_all_relationships_between,
+    get_node_relationships,
+    get_node_relationships_between,
     get_node,
     create_update_append_node,
     create_update_relationship
@@ -102,12 +102,12 @@ async def get_memory_from_triplet(triplets: Triplets) -> tuple[Triplets, Triplet
     for node in triplets.nodes:
         tasks.append(get_node(node.label, node.name))
         # nodeが持つすべてのrealtionを取得
-        tasks.append(get_all_relationships(node.label, node.name))
+        tasks.append(get_node_relationships(node.label, node.name))
 
     if triplets.relationships:
         for relationship in triplets.relationships:
             # node1とnode2間のrelationを取得
-            tasks.append(get_all_relationships_between(
+            tasks.append(get_node_relationships_between(
                 relationship.start_node_label,
                 relationship.end_node_label,
                 relationship.start_node,
