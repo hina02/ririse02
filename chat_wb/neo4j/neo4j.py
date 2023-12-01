@@ -25,7 +25,14 @@ def create_update_append_node(node: Node):
     properties = node.properties
 
     with driver.session() as session:
-        result = session.run(f"MATCH (n:{label} {{name: $name}}) RETURN id(n) as node_id", name=name).single()
+        result = session.run(
+            f"""
+            MATCH (n:{label})
+            WHERE n.name = $name OR $name IN n.name_variation
+            RETURN id(n) as node_id
+            """,
+            name=name,
+        ).single()
         node_id = result.get("node_id") if result else None
 
         # 既存のノードが存在し、新規プロパティがある場合、プロパティを更新する。（キーが重複する場合は追加）
@@ -40,7 +47,7 @@ def create_update_append_node(node: Node):
                         ELSE apoc.coll.toSet(n.{property_name} + [$property_value])
                     END
                     """
-                    session.run(update_query, node_id=node_id, property_value=property_value)
+                    session.run(update_query, node_id=node_id, property_value=property_value)   # idが複数の場合、このクエリは実行されず、スルーされる。
 
                 message = f"Node {{{label}:{name}}} already exists.\nProperty updated."
                 logger.info(message)
@@ -75,10 +82,13 @@ def create_update_relationship(relationships: Relationships):
     end_node_label = f":{relationships.end_node_label}" if relationships.end_node_label is not None else ""
 
     with driver.session() as session:
-        # 指定されたリレーションシップを検索
+        # name_variationを考慮して、ノードを検索した後に、リレーションシップを検索する。
         result = session.run(
             f"""
-            MATCH (n1{start_node_label} {{name: $start_node}})-[r:{relation_type}]->(n2{end_node_label} {{name: $end_node}})
+            MATCH (n1{start_node_label}), (n2{end_node_label})
+            WHERE (n1.name = $start_node OR $start_node IN n1.name_variation)
+            AND (n2.name = $end_node OR $end_node IN n2.name_variation)
+            MATCH (n1)-[r:{relation_type}]->(n2)
             RETURN id(r) as relationship_id
             """,
             start_node=start_node,
