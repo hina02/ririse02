@@ -32,40 +32,44 @@ async def get_voice(text: str):
 stream_chat_clients = {}
 
 
-def get_stream_chat_client(title: str):
+def get_stream_chat_client(title: str, user_input: str | None = None):
     if title not in stream_chat_clients:
-        stream_chat_clients[title] = StreamChatClient(title)
+        stream_chat_clients[title] = StreamChatClient(title, user_input)
+    else:
+        stream_chat_clients[title].set_user_input(user_input)
     return stream_chat_clients[title]
 
 
 # AIの会話応答を行うするクラス
 class StreamChatClient():
-    def __init__(self, title: str) -> None:
+    def __init__(self, title: str, user_input: str) -> None:
         self.title = title
         self.client = OpenAI()
-        self.temp_memory_user_request: str
+        self.temp_memory_user_input: str = user_input
         self.temp_memory: list[str] = []
         self.short_memory: list[str] = []  # 短期記憶(n=<7)
         self.long_memory: list[str] | None = None  # 長期記憶(from neo4j)
         self.user_input_entity: Triplets | None = None  # ユーザー入力から抽出したTriplets
         logger.info(f"short_memory: {self.short_memory}")
 
+    def set_user_input(self, user_input: str):
+        self.temp_memory_user_input = user_input
+
     # 短い文章で出力を返す（これ複数回で1回の返答）
-    def streamchat(self, k: int, user_input: str | None = None, long_memory: list[str] | None = None, max_tokens: int = 240):
+    def streamchat(self, k: int, input_text: str | None = None, long_memory: list[str] | None = None, max_tokens: int = 240):
         # prompt
         system_prompt = """Output is Japanese.
                         Continue to your previous sentences.
                         Don't reveal hidden information."""
-        if user_input is None:
-            user_prompt = f"""user: {self.temp_memory_user_request}
-                             "user: continue it."""  # より確実に、前の文章を継続するようにする。
-
+        # 1回目のuser_prompt
+        if input_text is not None:
+            user_prompt = f"""user: {input_text}"""
+        # 2回目以降のuser_prompt
         else:
-            self.temp_memory_user_request = user_input
-            user_prompt = f"""user: {user_input}
-            """
+            user_prompt = f"""user: {self.temp_memory_user_input}
+                              user:continue it."""
 
-        # long_memoryがある場合、それをuser_inputに追加する。
+        # long_memoryがある場合、それをinput_textに追加する。
         if long_memory:
             self.long_memory = "\n".join(long_memory)
 
@@ -142,9 +146,9 @@ class StreamChatClient():
         return sentences
 
     # websocketに対応して、tripletの抽出、保存を行い、検索結果を送信する関数
-    async def wb_get_memory_from_triplet(self, text: str, websocket: WebSocket):
+    async def wb_get_memory_from_triplet(self, websocket: WebSocket):
         # textからTriplets(list[Node], list[Relationship])を抽出
-        triplets = await run_sequences(text)
+        triplets = await run_sequences(self.temp_memory_user_input)
         logger.info(f"triplets: {triplets}")
         if triplets is None:
             return None  # 出力なしの場合は、Noneを返す。
@@ -160,7 +164,7 @@ class StreamChatClient():
         logger.info(f"user_input_entity: {self.user_input_entity}")
 
         # Neo4jから、Tripletsに含まれるノードと関係を取得
-        result = await get_memory_from_triplet(text)
+        result = await get_memory_from_triplet(self.user_input_entity)
         result = None
         if result is None:
             return None
@@ -173,7 +177,7 @@ class StreamChatClient():
 
     # テキスト生成から音声合成、再生までを統括する関数
     async def wb_generate_audio(
-        self, input_data: WebSocketInputData, websocket: WebSocket, k: int = 4
+        self, websocket: WebSocket, k: int = 4
     ):
 
         # historyと同じ内容かどうかを調べて、同じなら生成しないようにできるかもしれない。（function callingか）
@@ -182,9 +186,9 @@ class StreamChatClient():
 
         for i in range(k):
             max_tokens = 80 if i == 0 else 160 if i == 1 else 240  # 初回応答速度を上げるために、80で渡す。段階的に増加。
-            input_text = input_data.input_text if i == 0 else None  # 初回のみ受け取ったテキストを渡す。
+            input_text = self.temp_memory_user_input if i == 0 else None  # 初回のみ受け取ったテキストを渡す。
             response = self.streamchat(
-                k=k, user_input=input_text, max_tokens=max_tokens  # long_memory=self.long_memory
+                k=k, input_text=input_text, max_tokens=max_tokens  # long_memory=self.long_memory
             )  # ここにentityを入れれば、global変数が変更されたタイミングで、適用される。
 
             # テキストを正規表現で分割してリストに整形

@@ -19,15 +19,15 @@ async def websocket_endpoint(websocket: WebSocket):
     title = input_data.title
 
     # StreamChatClientを取得
-    client = get_stream_chat_client(title)
+    client = get_stream_chat_client(title, input_text)
     messages = get_messages(title)
-    former_node_id = messages[-1].get("id") if messages else None
+    former_node_id = messages[-1].get("id") if messages else None   # 最新のメッセージのidを取得
     input_data.former_node_id = former_node_id
 
     # メッセージを受信した後、generate_audioを呼び出す
     await asyncio.gather(
-        client.wb_generate_audio(input_data, websocket, 3),  # レスポンス、音声合成
-        client.wb_get_memory_from_triplet(input_text, websocket),  # triplet, graph（ノード情報）獲得
+        client.wb_generate_audio(input_text, websocket, 3),  # レスポンス、音声合成
+        client.wb_get_memory_from_triplet(websocket),  # triplet, graph（ノード情報）獲得
     )
 
     # 全ての処理が終了した後で、Neo4jに保存し、保存したノードのidを返す。

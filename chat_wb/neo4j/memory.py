@@ -142,6 +142,7 @@ async def store_message(
     ai_response: str,
     user_input_entity: Triplets | None = None,
 ) -> int:
+    source = input_data.source
     title = input_data.title
     user_input = input_data.input_text
     former_node_id = input_data.former_node_id
@@ -177,7 +178,7 @@ async def store_message(
         # メッセージノードを作成
         vector = get_embedding(ai_response)  # どれを登録するべきか悩ましい
         result = session.run(
-            """CREATE (b:Message {create_time: $create_time,
+            """CREATE (b:Message {create_time: $create_time, source: $source,
                              user_input: $user_input, user_input_entity: $user_input_entity,
                              ai_response: $ai_response})
                              WITH b
@@ -185,6 +186,7 @@ async def store_message(
                              YIELD node
                              RETURN id(b) AS node_id""",
             create_time=create_time,
+            source=source,
             user_input=user_input,
             user_input_entity=json.dumps(user_input_entity),
             ai_response=ai_response,
