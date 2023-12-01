@@ -25,80 +25,80 @@ def create_update_append_node(node: Node):
     properties = node.properties
 
     with driver.session() as session:
-        result = session.run(f"MATCH (n:{label} {{name: $name}}) RETURN n", name=name)
+        result = session.run(f"MATCH (n:{label} {{name: $name}}) RETURN id(n) as node_id", name=name).single()
+        node_id = result.get("node_id") if result else None
 
-        # ノードが存在しない場合、作成する。
-        if result.single() is None:
-            # プロパティをリストとして初期化
+        # 既存のノードが存在し、新規プロパティがある場合、プロパティを更新する。（キーが重複する場合は追加）
+        if node_id:
+            if properties:
+                for property_name, property_value in properties.items():
+                    update_query = f"""
+                    MATCH (n)
+                    WHERE id(n) = $node_id
+                    SET n.{property_name} = CASE
+                        WHEN n.{property_name} IS NULL THEN [$property_value]
+                        ELSE apoc.coll.toSet(n.{property_name} + [$property_value])
+                    END
+                    """
+                    session.run(update_query, node_id=node_id, property_value=property_value)
+
+                message = f"Node {{{label}:{name}}} already exists.\nProperty updated."
+                logger.info(message)
+                return {"status": "success", "message": message, "node_id": node_id}
+            
+        # ノードが存在しない場合、新しいノードを作成。
+        else:
+            # プロパティにnameを追加し、リストとして初期化
             properties["name"] = name
-
-            # Cypherクエリを動的に作成する
-            props_string = ", ".join([f"{k}: ${k}" for k in properties.keys()])
-            session.run(
-                f"CREATE (n:{label} {{{props_string}}}) RETURN id(n) as node_id",
-                **properties,
-            )
-            result = session.run(
-                f"MATCH (n:{label} {{name: $name}}) RETURN id(n) as node_id", name=name
-            )
+            merge_query = f"""
+            MERGE (n:{label} {{name: $name}})
+            ON CREATE SET {', '.join([f'n.{k} = ${k}' for k in properties.keys()])}
+            RETURN id(n) as node_id
+            """
+            result = session.run(merge_query, **properties)
             node_id = result.single()["node_id"]
 
             message = f"Node {{{label}:{name}}} created."
             logger.info(message)
             return {"status": "success", "message": message, "node_id": node_id}
 
-        # ノードが存在し、新規プロパティがある場合、プロパティを更新する。（キーが重複する場合は追加）
-        else:
-            if properties:
-                for property_name, property_value in properties.items():
-                    update_query = f"""
-                    MATCH (n:{label} {{name: $name}})
-                    SET n.{property_name} = CASE
-                        WHEN n.{property_name} IS NULL THEN [$property_value]
-                        ELSE apoc.coll.toSet(n.{property_name} + [$property_value])
-                    END
-                    RETURN id(n) as node_id
-                    """
-                    result = session.run(update_query, name=name, property_value=property_value)
-                    node_id = result.single()["node_id"]
-
-                message = f"Node {{{label}:{name}}} already exists.\nProperty updated."
-                logger.info(message)
-                return {"status": "success", "message": message, "node_id": node_id}
-
 
 # optionのリレーションシップを作成する
 def create_update_relationship(relationships: Relationships):
-    start_node_label = relationships.start_node_label
     start_node = relationships.start_node
-    end_node_label = relationships.end_node_label
     end_node = relationships.end_node
     relation_type = relationships.type
     properties = relationships.properties
 
+    # ノードラベルがNoneの場合にクエリから省略する
+    start_node_label = f":{relationships.start_node_label}" if relationships.start_node_label is not None else ""
+    end_node_label = f":{relationships.end_node_label}" if relationships.end_node_label is not None else ""
+
     with driver.session() as session:
         # 指定されたリレーションシップを検索
-        existing_record = session.run(
+        result = session.run(
             f"""
-            MATCH (n1:{start_node_label} {{name: $start_node}})-[r:{relation_type}]->(n2:{end_node_label} {{name: $end_node}})
-            RETURN r
-        """,
+            MATCH (n1{start_node_label} {{name: $start_node}})-[r:{relation_type}]->(n2{end_node_label} {{name: $end_node}})
+            RETURN id(r) as relationship_id
+            """,
             start_node=start_node,
             end_node=end_node,
         ).single()
+        relationship_id = result.get("relationship_id") if result else None
 
         # 既存のリレーションシップが存在し、新規プロパティがある場合、内容を更新
-        if existing_record:
+        if relationship_id:
             if properties:
                 session.run(
-                    f"""
-                    MATCH (n1:{start_node_label} {{name: $start_node}})-[r:{relation_type}]->(n2:{end_node_label} {{name: $end_node}})
+                    """
+                    MATCH ()-[r]->()
+                    WHERE id(r) = $relationship_id
                     SET r += $properties
-                """,
+                    """,
                     start_node=start_node,
                     end_node=end_node,
                     properties=properties,
-                )
+                )  # idが複数の場合、このクエリは実行されず、スルーされる。
 
                 message = f"""Relationship {{Node1:{start_node}}}-{{{relation_type}}}
                                 ->{{Node2:{end_node}}} already exists.\nProperty updated:{{'properties':{properties}}}"""
@@ -107,25 +107,17 @@ def create_update_relationship(relationships: Relationships):
 
         # リレーションシップが存在しない場合、新しいリレーションシップを作成
         else:
-            if properties:  # プロパティが存在する場合
-                session.run(
-                    f"""
-                    MATCH (n1:{start_node_label} {{name: $start_node}}), (n2:{end_node_label} {{name: $end_node}})
-                    CREATE (n1)-[:{relation_type} {{properties: $properties}}]->(n2)
-                    """,
-                    start_node=start_node,
-                    end_node=end_node,
-                    properties=properties,
-                )
-            else:  # プロパティが存在しない場合
-                session.run(
-                    f"""
-                    MATCH (n1:{start_node_label} {{name: $start_node}}), (n2:{end_node_label} {{name: $end_node}})
-                    CREATE (n1)-[:{relation_type}]->(n2)
-                    """,
-                    start_node=start_node,
-                    end_node=end_node,
-                )
+            properties = properties or {}
+            session.run(
+                f"""
+                MATCH (n1{start_node_label} {{name: $start_node}}), (n2{end_node_label} {{name: $end_node}})
+                MERGE (n1)-[r:{relation_type}]->(n2)
+                ON CREATE SET r += $properties
+                """,
+                start_node=start_node,
+                end_node=end_node,
+                properties=properties,
+            )
 
 
 # ノードを削除する

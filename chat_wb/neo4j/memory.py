@@ -195,7 +195,7 @@ async def store_message(
         new_node_id = result.single()["node_id"]
         logger.info(f"Message Node created: {new_node_id}")
 
-        # 親ノード(Title)からのリレーション(CONTAIN)を作成する　動いてない？？
+        # 親ノード(Title)からのリレーション(CONTAIN)を作成する
         session.run(
             "MATCH (a:Title {title: $title}), (b:Message {user_input: $user_input}) CREATE (a)-[:CONTAIN]->(b)",
             title=title,
@@ -213,6 +213,22 @@ async def store_message(
                 former_node_id=former_node_id,
             )
             logger.info(f"Message Node Relation created: {new_node_id}")
+
+        # user_input_entityへのリレーションを作成
+        # Message Nodeにcreate_timeがあるので、ここに時間を含める必要はない。空プロパティでOK。
+        if user_input_entity is not None:
+            for node in user_input_entity.nodes:
+                session.run(
+                    """MATCH (a:Message)
+                        WHERE id(a) = $new_node_id
+                        CALL apoc.cypher.run('MATCH (b:`'+ $label +'` {name: $name}) RETURN b', {name: $name}) YIELD value as b
+                        CREATE (a)-[:CONTAIN]->(b.value)""",
+                    label=node.label,
+                    name=node.name,
+                    new_node_id=new_node_id,
+                )
+                logger.info(f"Message Node Relation with entity created: {user_input_entity.nodes}")
+                
     return new_node_id
 
 

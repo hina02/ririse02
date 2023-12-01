@@ -40,8 +40,9 @@ class Triplets(BaseModel):
     @classmethod
     def create(cls, triplets_data):
         nodes = [
-            Node.create(label=node['label'], name=node['name'], properties=node['properties'])
+            Node.create(label=node.get('label'), name=node.get('name'), properties=node.get('properties'))
             for node in triplets_data['Nodes']
+            if 'label' in node and 'name' in node  # label と name のキーが存在することを確認
         ]
 
         relationships = []
@@ -56,6 +57,7 @@ class Triplets(BaseModel):
                     end_node_label=next((node.label for node in nodes if node.name == relationship['end_node']), None)
                 )
                 for relationship in triplets_data['Relationships']
+                if 'type' in relationship and 'start_node' in relationship and 'end_node' in relationship  # 必要なキーが存在することを確認
             ]
 
         return cls(nodes=nodes, relationships=relationships)
