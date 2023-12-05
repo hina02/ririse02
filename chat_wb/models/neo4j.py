@@ -11,6 +11,16 @@ class Node(BaseModel):
     name: str
     properties: dict | None
 
+    def __hash__(self):
+        # 各属性を用いてハッシュ値を計算
+        return hash((self.label, self.name))
+
+    def __eq__(self, other):
+        # 他の Node オブジェクトと比較
+        if not isinstance(other, Node):
+            return False
+        return (self.label, self.name) == (other.label, other.name)
+
     @classmethod
     def create(cls, label: str, name: str, properties: dict):
         name = remove_suffix(name)
@@ -24,7 +34,20 @@ class Relationships(BaseModel):
     properties: dict | None
     start_node_label: str | None
     end_node_label: str | None
-    # time: str | None
+
+    def __hash__(self):
+        # 各属性を用いてハッシュ値を計算（long_memoryをSet重複排除するために使う）
+        return hash((self.type, self.start_node, self.end_node, self.start_node_label, self.end_node_label))
+
+    def __eq__(self, other):
+        # 他の Relationships オブジェクトと比較（entityとmatchするために使う）
+        if not isinstance(other, Relationships):
+            return False
+        return (
+            self.type == other.type and
+            self.start_node == other.start_node and
+            self.end_node == other.end_node
+        )
 
     @classmethod
     def create(cls, type: str, start_node: str, end_node: str, properties: dict, start_node_label: str | None, end_node_label: str | None):

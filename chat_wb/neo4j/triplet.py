@@ -94,7 +94,7 @@ async def run_sequences(text: str, reference: str | None = None) -> Triplets | N
 
 
 @atimer
-async def get_memory_from_triplet(triplets: Triplets) -> tuple[Triplets, Triplets]:
+async def get_memory_from_triplet(triplets: Triplets) -> Triplets:
     # Neo4jへのクエリレスポンスを取得 1回で1秒程度
     # functionにする(つまりAIがどれを使うか選択)ことを検討。ノード取得を使うか？を、各nodeに対して判断する。
     tasks = []

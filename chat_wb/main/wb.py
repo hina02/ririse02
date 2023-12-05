@@ -48,7 +48,7 @@ class StreamChatClient():
         self.temp_memory_user_input: str = user_input
         self.temp_memory: list[str] = []
         self.short_memory: list[str] = []  # 短期記憶(n=<7)
-        self.long_memory: list[str] | None = None  # 長期記憶(from neo4j)
+        self.long_memory: Triplets | None = None  # 長期記憶(from neo4j)
         self.user_input_entity: Triplets | None = None  # ユーザー入力から抽出したTriplets
         logger.info(f"short_memory: {self.short_memory}")
 
@@ -56,7 +56,7 @@ class StreamChatClient():
         self.temp_memory_user_input = user_input
 
     # 短い文章で出力を返す（これ複数回で1回の返答）
-    def streamchat(self, k: int, input_text: str | None = None, long_memory: list[str] | None = None, max_tokens: int = 240):
+    def streamchat(self, k: int, input_text: str | None = None, long_memory: Triplets | None = None, max_tokens: int = 240):
         # prompt
         system_prompt = """Output is Japanese.
                         Continue to your previous sentences.
