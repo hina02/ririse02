@@ -28,6 +28,7 @@ client = OpenAI()
 
 @atimer
 async def coference_resolution(text: str, reference: str | None = None):
+    """Output format is {"change": true or false, "changed_sentence": ""}"""
     # prompt
     system_prompt = COREFERENCE_RESOLUTION_PROMPT
     user_prompt = f"{text}"
@@ -43,8 +44,17 @@ async def coference_resolution(text: str, reference: str | None = None):
         model="gpt-3.5-turbo-1106",
         messages=messages,
         temperature=0.0,
+        response_format={"type": "json_object"},
     )
-    return response.choices[0].message.content
+    # 修正がない場合は元のテキストを返す。
+    response_json = response.choices[0].message.content
+    response = json.loads(response_json)
+    logger.info(response)
+    if response.get("change"):
+        return response.get("changed_sentence")
+    else:
+        return text
+
 
 
 @atimer

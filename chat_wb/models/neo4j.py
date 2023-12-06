@@ -12,17 +12,21 @@ class Node(BaseModel):
     properties: dict | None
 
     def __hash__(self):
-        # 各属性を用いてハッシュ値を計算
+        """long_memoryの重複排除に使用する。各属性を用いてハッシュ値を計算。"""
         return hash((self.label, self.name))
 
     def __eq__(self, other):
-        # 他の Node オブジェクトと比較
+        """entityとmatchするために使用する。"""
         if not isinstance(other, Node):
             return False
         return (self.label, self.name) == (other.label, other.name)
 
     @classmethod
     def create(cls, label: str, name: str, properties: dict):
+        """LLMで生成されたノードを Node オブジェクトに変換する"""
+        # neo4jでlabel,nameを空文字にしないため、空文字の場合はNoneを返す。
+        # if not label or not name:
+        #     return None
         name = remove_suffix(name)
         return cls(label=label, name=name, properties=properties)
 
@@ -36,11 +40,11 @@ class Relationships(BaseModel):
     end_node_label: str | None
 
     def __hash__(self):
-        # 各属性を用いてハッシュ値を計算（long_memoryをSet重複排除するために使う）
+        """long_memoryの重複排除に使用する。各属性を用いてハッシュ値を計算。"""
         return hash((self.type, self.start_node, self.end_node, self.start_node_label, self.end_node_label))
 
     def __eq__(self, other):
-        # 他の Relationships オブジェクトと比較（entityとmatchするために使う）
+        """他の Relationships オブジェクトと比較（entityとmatchするために使う）"""
         if not isinstance(other, Relationships):
             return False
         return (
@@ -51,8 +55,11 @@ class Relationships(BaseModel):
 
     @classmethod
     def create(cls, type: str, start_node: str, end_node: str, properties: dict, start_node_label: str | None, end_node_label: str | None):
+        """LLMで生成された関係を Relationships オブジェクトに変換する"""
         start_node = remove_suffix(start_node)
         end_node = remove_suffix(end_node)
+        if not type or not start_node or not end_node:
+            return None
         return cls(type=type, start_node=start_node, end_node=end_node, properties=properties, start_node_label=start_node_label, end_node_label=end_node_label)
 
 
@@ -62,11 +69,17 @@ class Triplets(BaseModel):
 
     @classmethod
     def create(cls, triplets_data):
-        nodes = [
-            Node.create(label=node.get('label'), name=node.get('name'), properties=node.get('properties'))
-            for node in triplets_data['Nodes']
-            if 'label' in node and 'name' in node  # label と name のキーが存在することを確認
-        ]
+        """LLMで生成されたTripletsをTripletsオブジェクトに変換する"""
+        logger.info(f"triplets_data: {triplets_data}")
+
+        nodes = []
+        if 'Nodes' in triplets_data:
+            for node in triplets_data['Nodes']:
+                if 'label' in node and ('name' in node or ('properties' in node and 'name' in node.get('properties'))):  # label と name のキーが存在することを確認
+                    name = node.get('name') if node.get('name') else node.get('properties').get('name')
+                    nodes.append(Node.create(label=node.get('label'), name=name, properties=node.get('properties')))
+            logger.info(f"nodes: {nodes}")
+            nodes = [node for node in nodes if node is not None]    # Noneを除外
 
         relationships = []
         if 'Relationships' in triplets_data:
@@ -82,13 +95,14 @@ class Triplets(BaseModel):
                 for relationship in triplets_data['Relationships']
                 if 'type' in relationship and 'start_node' in relationship and 'end_node' in relationship  # 必要なキーが存在することを確認
             ]
+            relationships = [relationship for relationship in relationships if relationship is not None]
 
         return cls(nodes=nodes, relationships=relationships)
 
 
 # Use in Triplet
 def remove_suffix(name: str) -> str:
-    # 正規表現パターンで、接尾語を列挙し、それらを末尾から削除する
+    """正規表現パターンで、接尾語を列挙し、それらを末尾から削除する"""
     jk_suffixes = [
         "りん",
         "ぴ",
