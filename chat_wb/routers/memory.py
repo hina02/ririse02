@@ -1,7 +1,7 @@
 # test API
 from logging import getLogger
 from chat_wb.neo4j.memory import query_vector, get_messages, get_titles
-from chat_wb.neo4j.triplet import run_sequences, get_memory_from_triplet, store_memory_from_triplet
+from chat_wb.neo4j.triplet import TripletsConverter, get_memory_from_triplet, store_memory_from_triplet
 from fastapi import APIRouter
 
 
@@ -30,11 +30,11 @@ def get_titles_api():
 
 @memory_router.get("/get_memory_from_triplet", tags=["memory"])
 async def get_memory_from_triplet_api(text: str):
-    triplets = await run_sequences(text)
+    triplets = await TripletsConverter().run_sequences(text)
     return await get_memory_from_triplet(triplets)
 
 
 @memory_router.get("/store_memory_from_triplet", tags=["memory"])
 async def store_memory_from_triplet_api(text: str):
-    triplets = await run_sequences(text)
+    triplets = await TripletsConverter().run_sequences(text)
     return store_memory_from_triplet(triplets)

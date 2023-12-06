@@ -93,18 +93,18 @@ def read_root():
     """
 
 # test endpoint
-from chat_wb.neo4j.triplet import coference_resolution, convert_to_triplets, run_sequences
+from chat_wb.neo4j.triplet import TripletsConverter
 
 @app.get("/conference")
-async def conference_resolution_chain(text: str, reference: str):
-    return await coference_resolution(text, reference)
+async def conference_resolution_chain(text: str):
+    return await TripletsConverter().coference_resolution(text)
 
 @app.get("/triplets")
 async def triplets(text: str):
-    result = await convert_to_triplets(text)
+    result = await TripletsConverter().convert_to_triplets(text)
     logger.info(result)
     return result
 
 @app.get("/run_sequences")
 async def run_sequences_api(text: str):
-    return await run_sequences(text)
+    return await TripletsConverter().run_sequences(text)

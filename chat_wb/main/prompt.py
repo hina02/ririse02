@@ -35,6 +35,33 @@ Current conversation:
 Summary:"""
 
 
+# code blockを要約するプロンプト
+CODE_SUMMARIZER_PROMPT = """
+1. Return only what is this code blocks and logs in a short word. Must be few sentences.
+2. Output 1 in json format to 1 neo4j node without id. output format example is here.
+{{Nodes: [{{"label":"Code" or "ErrorLog", "name", "properties":dict}}],
+"""
+
+# manual documentを要約するプロンプト
+# output jsonまで含めた場合、安定しないので、2stepにする。
+DOCS_COMPRESSER_PROMPT = """
+Return only what is this text in a short word. Must be 1 sentence.
+"""
+
+DOCS_CONVERTER_PROMPT = """
+Output json format to 1 neo4j node without id. output format example is here.
+{{Nodes: [{{"label":document type like manual, tutorial, journal, report, API document, etc, "name":document name, "properties":dict}}],
+"""
+
+# 与えられたtextの種類をchat, code, documentに分類し、triageする。
+TEXT_TRIAGER_PROMPT = """
+Given a text, your task is to identify the type of text and return the type of text.
+If it is constructed from "code blocks" or "error logs": type is "code".
+elif it is "long" documents like manual, tutorial, journal, report, API document, etc: type is "document".
+else: type is "chat".
+Output json format is here.
+{{"type": "chat" or "code" or "document"}}
+"""
 
 # fetch_label_and_relationship_type_sets
 
@@ -52,10 +79,10 @@ Use coreference resolution to make these replacements accurate and contextually 
 The goal is to maintain the original meaning of a sentence.
 For example, if the input sentence is 'That movie was very fantastic!' and reference is ['Did you watch RRR?', 'That movie was very fantastic!'], the response should be 'RRR was very fantastic!'.
 
-The output should be a single sentence in which any pronouns have been accurately replaced with their respective referents from the context.
-If a sentence does not contain any pronouns, it should be included in the output unchanged sentence.
+The output should be changed sentence in which any pronouns have been accurately replaced with their respective referents from the context.
+If a sentence does not contain any pronouns, changed_sentence will be "".
 
-output_format is {{output sentence}}
+output json format is {{"change": true or false, "changed_sentence": ""}}
 """
 
 

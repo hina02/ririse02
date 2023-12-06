@@ -9,7 +9,7 @@ from fastapi import WebSocket
 from openai import OpenAI
 from openai_api.models import ChatPrompt
 from chat_wb.voice.text2voice import playVoicePeak
-from chat_wb.neo4j.triplet import run_sequences, get_memory_from_triplet, store_memory_from_triplet
+from chat_wb.neo4j.triplet import TripletsConverter, get_memory_from_triplet, store_memory_from_triplet
 from chat_wb.models.neo4j import Triplets
 from chat_wb.models.wb import WebSocketInputData
 
@@ -148,7 +148,7 @@ class StreamChatClient():
     # websocketに対応して、tripletの抽出、保存を行い、検索結果を送信する関数
     async def wb_get_memory_from_triplet(self, websocket: WebSocket):
         # textからTriplets(list[Node], list[Relationship])を抽出
-        triplets = await run_sequences(self.temp_memory_user_input)
+        triplets = await TripletsConverter().run_sequences(self.temp_memory_user_input, self.client)
         logger.info(f"triplets: {triplets}")
         if triplets is None:
             return None  # 出力なしの場合は、Noneを返す。
