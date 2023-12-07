@@ -294,76 +294,64 @@ def get_all_relationships() -> list[str]:
     return relationships
 
 
-# Title（title）、Message（user_input, ai_response）のノードを取得する。
-def get_message_nodes() -> list[Node]:
+# 指定したTitle（title）のMessage（user_input, ai_response）のノードを取得する。
+def get_message_nodes(title: str) -> list[Node]:
     nodes = []
 
     with driver.session() as session:
-        # Title ラベルのノードを取得
-        result_title = session.run("MATCH (n) WHERE 'Title' IN labels(n) RETURN labels(n) as label, n.title as title")
-        for record in result_title:
-            name = record["title"]
-            if name:
-                node = Node(label=record["label"][0], name=record["title"], properties=None)
-                nodes.append(node)
+        # 指定したタイトルのノードと、そのタイトルに関連するメッセージのノードを取得
+        result = session.run(
+            """
+            MATCH (t:Title {title: $title})-[:CONTAIN]->(m:Message)
+            RETURN labels(t) as title_label, t.title as title_name, labels(m) as message_label, m.user_input as user_input, m.ai_response as ai_response
+            """,
+            title=title
+        )
+        for record in result:
+            # タイトルのノードを追加
+            node = Node(label=record["title_label"][0], name=record["title_name"], properties=None)
+            nodes.append(node)
 
-        # Message ラベルのノードを取得
-        result_message = session.run("MATCH (n) WHERE 'Message' IN labels(n) RETURN labels(n) as label, n.user_input as user_input, n.ai_response as ai_response")
-        for record in result_message:
+            # メッセージのノードを追加
             properties = {"ai_response": record["ai_response"]}
-            name = record["user_input"]
-            if name:
-                node = Node(label=record["label"][0], name=record["user_input"], properties=properties)
-                nodes.append(node)
+            node = Node(label=record["message_label"][0], name=record["user_input"], properties=properties)
+            nodes.append(node)
 
     return nodes
 
 
-# Title（title）、Message（user_input）起点のリレーションシップのタイプと、始点ノード・終点ノードの名前を取得する
-def get_message_relationships() -> list[Relationships]:
+# 指定したTitle（title）のMessage（user_input）起点のリレーションシップのタイプと、始点ノード・終点ノードの名前を取得する
+def get_message_relationships(title: str) -> list[Relationships]:
     relationships = []
 
     with driver.session() as session:
-        # Title -> Messageのリレーションシップを取得
-        result_title = session.run(
+        # 指定したタイトルから深さ2までのリレーションシップ(Title -> Message, Message -> Message or Entity, )を取得
+        result = session.run(
             """
-            MATCH (n:Title)-[r:CONTAIN]->(m:Message)
-            RETURN type(r) AS type, n.title as start_node, m.user_input as end_node
-            """
+            MATCH path = (n:Title {title: $title})-[*1..2]->(m)
+            WITH relationships(path) as rels
+            UNWIND rels as r
+            WITH startNode(r) as start, endNode(r) as end, type(r) as type
+            RETURN 
+                CASE labels(start)[0]
+                    WHEN 'Title' THEN start.title
+                    WHEN 'Message' THEN start.user_input
+                    ELSE start.name
+                END as start_node,
+                type,
+                CASE labels(end)[0]
+                    WHEN 'Title' THEN end.title
+                    WHEN 'Message' THEN end.user_input
+                    ELSE end.name
+                END as end_node
+            """,
+            title=title
         )
-        for record in result_title:
+        for record in result:
             start_node = record["start_node"]
             end_node = record["end_node"]
             if start_node and end_node:
-                relationship = Relationships(type=record["type"], start_node=record["start_node"], end_node=record["end_node"], properties=None, start_node_label="Title", end_node_label=None)
-                relationships.append(relationship)
-
-        # Message -> Messageのリレーションシップを取得
-        result_message = session.run(
-            """
-            MATCH (n:Message)-[r:PRECEDES|FOLLOW]->(m:Message)
-            RETURN type(r) AS type, n.user_input as start_node, m.user_input as end_node
-            """
-        )
-        for record in result_message:
-            start_node = record["start_node"]
-            end_node = record["end_node"]
-            if start_node and end_node:
-                relationship = Relationships(type=record["type"], start_node=record["start_node"], end_node=record["end_node"], properties=None, start_node_label="Message", end_node_label=None)
-                relationships.append(relationship)
-
-        # Message ラベルのノードから始まるリレーションシップを取得
-        result_message = session.run(
-            """
-            MATCH (n:Message)-[r]->(m)
-            RETURN type(r) AS type, n.user_input as start_node, m.name as end_node
-            """
-        )
-        for record in result_message:
-            start_node = record["start_node"]
-            end_node = record["end_node"]
-            if start_node and end_node:
-                relationship = Relationships(type=record["type"], start_node=record["start_node"], end_node=record["end_node"], properties=None, start_node_label="Message", end_node_label=None)
+                relationship = Relationships(type=record["type"], start_node=record["start_node"], end_node=record["end_node"], properties=None, start_node_label=None, end_node_label=None)
                 relationships.append(relationship)
 
     return relationships
@@ -480,7 +468,11 @@ def integrate_node_properties(node1: Node, node2: Node):
 
         # 同じキーの値をリストに統合し、重複を避ける
         for key in set(props1.keys()).intersection(props2.keys()):
-            props1[key] = list(set(props1[key] + props2[key]))
+            if key != "name":  # 'name'プロパティをスキップ
+                # props1[key]とprops2[key]がリストでない場合、それらを一要素のリストに変換
+                props1_values = props1[key] if isinstance(props1[key], list) else [props1[key]]
+                props2_values = props2[key] if isinstance(props2[key], list) else [props2[key]]
+                props1[key] = list(set(props1_values + props2_values))
 
         # 統合したプロパティをn1にセット
         result = session.run(
@@ -493,24 +485,26 @@ def integrate_node_properties(node1: Node, node2: Node):
 
 def integrate_relationships(node1: Node, node2: Node):
     with driver.session() as session:
-        # node2終点のリレーションシップをnode1に移す
+        # node2開始点のリレーションシップをnode1に移す
         session.run(
             f"""
-            MATCH (n2:{node2.label} {{name: $name2}})-[r]->()
+            MATCH (n2:{node2.label} {{name: $name2}})-[r]->(m)
             MATCH (n1:{node1.label} {{name: $name1}})
-            CALL apoc.refactor.to(n1, r) YIELD input, output
-            DELETE n2
+            CALL apoc.refactor.from(r, n1)
+            YIELD input, output
+            RETURN input, output;
             """,
             name1=node1.name,
             name2=node2.name,
         )
-        # node2開始点のリレーションシップをnode1に移す
+        # node2終点のリレーションシップをnode1に移す
         session.run(
             f"""
-            MATCH (n2:{node2.label} {{name: $name2}})<-[r]-()
+            MATCH (n2:{node2.label} {{name: $name2}})<-[r]-(m)
             MATCH (n1:{node1.label} {{name: $name1}})
-            CALL apoc.refactor.from(n1, r) YIELD input, output
-            DELETE n2
+            CALL apoc.refactor.to(r, n1)
+            YIELD input, output
+            RETURN input, output;
             """,
             name1=node1.name,
             name2=node2.name,
