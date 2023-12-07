@@ -137,6 +137,26 @@ def query_vector(query: str, label: str, k: int = 3):
     return nodes
 
 
+async def create_and_update_title(title: str) -> int:
+    """Titleノードを作成、更新する"""
+    with driver.session() as session:
+        # title名でベクトル作成
+        pa_vector = get_embedding(title)
+        current_time = time.time()
+        session.run(
+            """
+            MERGE (a:Title {title: $title})
+            ON CREATE SET a.create_time = $create_time, a.update_time = $create_time, a.embedding = $vector
+            ON MATCH SET a.update_time = $update_time, a.embedding = $vector
+            """,
+            title=title,
+            vector=pa_vector,
+            create_time=current_time,
+            update_time=current_time
+        )
+        logger.info(f"Title Node created: {title}")
+
+
 async def store_message(
     input_data: WebSocketInputData,
     ai_response: str,
@@ -150,30 +170,18 @@ async def store_message(
     update_time = create_time
 
     with driver.session() as session:
-        # 親ノードTitleが無ければ、作成する
-        pa_result = session.run(
+        # 親ノードを更新する(update_timeを更新する)
+        title_id = session.run(
             """
-                                MERGE (a:Title {title: $title})
-                                ON CREATE SET a.create_time = $create_time, a.update_time = $create_time
-                                ON MATCH SET a.update_time = $update_time
-                                RETURN CASE WHEN a.create_time = $create_time THEN 'NOT_FOUND' ELSE 'FOUND' END AS status
-                                """,
+                MERGE (a:Title {title: $title})
+                ON CREATE SET a.create_time = $create_time, a.update_time = $create_time
+                ON MATCH SET a.update_time = $update_time
+                RETURN id(a) AS title_id
+                """,
             title=title,
             create_time=create_time,
             update_time=update_time,
-        )
-
-        # 親ノードTitleが新規作成の場合のベクトル作成
-        if pa_result == "NOT_FOUND":
-            pa_vector = get_embedding(title)
-            session.run(
-                """
-                        MERGE (a:Title {title: $title})
-                        db.create.setVectorProperty('Title', 1536, $vector))""",
-                title=title,
-                vector=pa_vector,
-            )
-            logger.info(f"Title Node created: {title}")
+        ).single()["title_id"]
 
         # メッセージノードを作成
         vector = get_embedding(ai_response)  # どれを登録するべきか悩ましい
@@ -182,7 +190,7 @@ async def store_message(
                              user_input: $user_input, user_input_entity: $user_input_entity,
                              ai_response: $ai_response})
                              WITH b
-                             CALL db.create.setVectorProperty(b, 'embedding', $vector)
+                             CALL db.create.setNodeVectorProperty(b, 'embedding', $vector)
                              YIELD node
                              RETURN id(b) AS node_id""",
             create_time=create_time,
@@ -197,8 +205,8 @@ async def store_message(
 
         # 親ノード(Title)からのリレーション(CONTAIN)を作成する
         session.run(
-            "MATCH (a:Title {title: $title}), (b) WHERE id(b) = $new_node_id CREATE (a)-[:CONTAIN]->(b)",
-            title=title,
+            "MATCH (a), (b) WHERE id(a) = $title_node_id AND id(b) = $new_node_id CREATE (a)-[:CONTAIN]->(b)",
+            title_id=title_id,
             new_node_id=new_node_id,
         )
 
