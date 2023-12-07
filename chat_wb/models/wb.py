@@ -4,6 +4,8 @@ from chat_wb.models.neo4j import Triplets
 
 # WebScoketで受け取るデータのモデル
 class WebSocketInputData(BaseModel):
+    user: str
+    AI: str
     source: str     # user_id or assistant_id(asst_) # user_id作成時にasst_の使用を禁止する
     input_text: str
     title: str | None = None

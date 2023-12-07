@@ -28,8 +28,10 @@ logger = getLogger(__name__)
 
 class TripletsConverter():
     """OpenAI APIを用いて、textをtripletsに変換するクラス"""
-    def __init__(self):
+    def __init__(self, user_name: str = "彩澄しゅお", ai_name: str = "彩澄りりせ"):
         self.client = OpenAI()
+        self.user_name = user_name
+        self.ai_name = ai_name
 
     async def summerize_code(self, text: str):
         """Summerize code block for burden of triplets"""
@@ -130,8 +132,8 @@ class TripletsConverter():
     async def coference_resolution(self, text: str):
         """Output format is {"change": true or false, "changed_sentence": ""}"""
         # prompt
-        system_prompt = COREFERENCE_RESOLUTION_PROMPT
-        user_prompt = f"{text}"
+        system_prompt = COREFERENCE_RESOLUTION_PROMPT.format(user=self.user_name)
+        user_prompt = f"""{text}"""
         messages = ChatPrompt(
             system_message=system_prompt,
             user_message=user_prompt,
@@ -203,7 +205,11 @@ class TripletsConverter():
         except json.JSONDecodeError:        # 有効なJSONでない場合の処理
             logger.error("Invalid response for json.loads")
             return None  # 出力なしの場合は、Noneを返す。単純質問は、Noneになる傾向。
-        triplets = Triplets.create(response)
+        triplets = Triplets.create(response, self.user_name, self.ai_name)
+
+        # convert I to user, You to AI
+
+
         logger.info(f"triplets: {triplets}")
         return triplets
 

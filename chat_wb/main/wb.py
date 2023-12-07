@@ -32,20 +32,23 @@ async def get_voice(text: str):
 stream_chat_clients = {}
 
 
-def get_stream_chat_client(title: str, user_input: str | None = None):
+def get_stream_chat_client(input_data: WebSocketInputData):
+    title = input_data.title
     if title not in stream_chat_clients:
-        stream_chat_clients[title] = StreamChatClient(title, user_input)
+        stream_chat_clients[title] = StreamChatClient(input_data)
     else:
-        stream_chat_clients[title].set_user_input(user_input)
+        stream_chat_clients[title].set_user_input(input_data.input_text)
     return stream_chat_clients[title]
 
 
 # AIの会話応答を行うするクラス
 class StreamChatClient():
-    def __init__(self, title: str, user_input: str) -> None:
-        self.title = title
+    def __init__(self, input_data: WebSocketInputData) -> None:
+        self.user = input_data.user
+        self.AI = input_data.AI
+        self.title = input_data.title
         self.client = OpenAI()
-        self.temp_memory_user_input: str = user_input
+        self.temp_memory_user_input: str = input_data.user_input
         self.temp_memory: list[str] = []
         self.short_memory: list[str] = []  # 短期記憶(n=<7)
         self.long_memory: Triplets | None = None  # 長期記憶(from neo4j)
@@ -148,7 +151,7 @@ class StreamChatClient():
     # websocketに対応して、tripletの抽出、保存を行い、検索結果を送信する関数
     async def wb_get_memory_from_triplet(self, websocket: WebSocket):
         # textからTriplets(list[Node], list[Relationship])を抽出
-        triplets = await TripletsConverter().run_sequences(self.temp_memory_user_input, self.client)
+        triplets = await TripletsConverter(user=self.user, AI=self.AI).run_sequences(self.temp_memory_user_input, self.client)
         logger.info(f"triplets: {triplets}")
         if triplets is None:
             return None  # 出力なしの場合は、Noneを返す。

@@ -57,7 +57,7 @@ Output json format to 1 neo4j node without id. output format example is here.
 TEXT_TRIAGER_PROMPT = """
 Given a text, your task is to identify the type of text and return the type of text.
 If it is constructed from "code blocks" or "error logs": type is "code".
-elif it is "long" documents like manual, tutorial, journal, report, API document, etc: type is "document".
+elif it is long documents like manual, tutorial, journal, report, API document, etc: type is "document".
 else: type is "chat".
 Output json format is here.
 {{"type": "chat" or "code" or "document"}}
@@ -72,12 +72,15 @@ RELATION_SETS = None  # fetch_label_and_relationship_type_sets()
 
 # 代名詞を補正するプロンプト
 # 全文からの出力だと3秒～かかる。tripletからだともっとかかる。ある程度、一文からの出力を安定させた。
+# Iの変換は行う。Youの変換は行わない。このプロンプトだけでは不十分なので、後でI,Youの変換を直接行う。
 COREFERENCE_RESOLUTION_PROMPT = """
 Given a sentence, your task is to identify and replace pronouns in each sentence with the proper noun they refer to in the original context if pronouns in a sentence.
 
 Use coreference resolution to make these replacements accurate and contextually correct.
 The goal is to maintain the original meaning of a sentence.
 For example, if the input sentence is 'That movie was very fantastic!' and reference is ['Did you watch RRR?', 'That movie was very fantastic!'], the response should be 'RRR was very fantastic!'.
+If the sentence expressed with first person pronouns (e.g. 'I', 'my', etc.), use "{user}".
+If the sentence expressed with second person pronouns (e.g. 'you', 'your', etc.), keep it.
 
 The output should be changed sentence in which any pronouns have been accurately replaced with their respective referents from the context.
 If a sentence does not contain any pronouns, changed_sentence will be "".
