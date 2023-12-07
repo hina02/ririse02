@@ -56,6 +56,7 @@ def create_update_append_node(node: Node):
         # ノードが存在しない場合、新しいノードを作成。
         else:
             # プロパティにnameを追加し、リストとして初期化
+            properties = properties or {}
             properties["name"] = name
             merge_query = f"""
             MERGE (n:{label} {{name: $name}})

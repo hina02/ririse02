@@ -63,6 +63,10 @@ class Relationships(BaseModel):
         return cls(type=type, start_node=start_node, end_node=end_node, properties=properties, start_node_label=start_node_label, end_node_label=end_node_label)
 
 
+FIRST_PERSON_PRONOUNS = ["私", "i", "user", "me"]
+SECOND_PERSON_PRONOUNS = ["you"]
+
+
 class Triplets(BaseModel):
     nodes: list[Node] = []
     relationships: list[Relationships] = []
@@ -77,10 +81,10 @@ class Triplets(BaseModel):
             for node in triplets_data['Nodes']:
                 if 'label' in node and ('name' in node or ('properties' in node and 'name' in node.get('properties'))):  # label と name のキーが存在することを確認
                     name = node.get('name') if node.get('name') else node.get('properties').get('name')
-                    # nameが"I"または"You"の場合、それぞれを"user_name"と"ai_name"に変換
-                    if name.lower() == "i":
+                    # nameが"I","Me"或いは"User"、または"You"の場合、それぞれを"user_name"と"ai_name"に変換
+                    if name.lower() in FIRST_PERSON_PRONOUNS:
                         name = user_name
-                    elif name.lower() == "you":
+                    elif name.lower() in SECOND_PERSON_PRONOUNS:
                         name = ai_name
                     nodes.append(Node.create(label=node.get('label'), name=name, properties=node.get('properties')))
             logger.info(f"nodes: {nodes}")
@@ -91,9 +95,9 @@ class Triplets(BaseModel):
             relationships = [
                 Relationships.create(
                     type=relationship['type'],
-                    # start_node, end_nodeが"I"または"You"の場合、それぞれを"user_name"と"ai_name"に変換
-                    start_node=relationship['start_node'] if relationship['start_node'].lower() != "i" and relationship['start_node'].lower() != "you" else user_name if relationship['start_node'].lower() == "i" else ai_name,
-                    end_node=relationship['end_node'] if relationship['end_node'].lower() != "i" and relationship['end_node'].lower() != "you" else user_name if relationship['end_node'].lower() == "i" else ai_name,
+                    # start_node, end_nodeが"I","Me"或いは"User"、または"You"の場合、それぞれを"user_name"と"ai_name"に変換
+                    start_node=relationship['start_node'] if relationship['start_node'].lower() not in FIRST_PERSON_PRONOUNS + SECOND_PERSON_PRONOUNS else user_name if relationship['start_node'].lower() in FIRST_PERSON_PRONOUNS else ai_name,
+                    end_node=relationship['end_node'] if relationship['end_node'].lower() not in FIRST_PERSON_PRONOUNS + SECOND_PERSON_PRONOUNS else user_name if relationship['end_node'].lower() in FIRST_PERSON_PRONOUNS else ai_name,
                     properties=relationship['properties'],
                     start_node_label=next((node.label for node in nodes if node.name == relationship['start_node']), None),
                     end_node_label=next((node.label for node in nodes if node.name == relationship['end_node']), None)

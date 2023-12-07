@@ -79,8 +79,8 @@ Given a sentence, your task is to identify and replace pronouns in each sentence
 Use coreference resolution to make these replacements accurate and contextually correct.
 The goal is to maintain the original meaning of a sentence.
 For example, if the input sentence is 'That movie was very fantastic!' and reference is ['Did you watch RRR?', 'That movie was very fantastic!'], the response should be 'RRR was very fantastic!'.
-If the sentence expressed with first person pronouns (e.g. 'I', 'my', etc.), use "{user}".
-If the sentence expressed with second person pronouns (e.g. 'you', 'your', etc.), keep it.
+If the sentence expressed with first person pronouns in any language (e.g. 'I', 'my', 'me' etc.), use "{user}".
+If the sentence expressed with second person pronouns in any language (e.g. 'you', 'your', etc.), keep it.
 
 The output should be changed sentence in which any pronouns have been accurately replaced with their respective referents from the context.
 If a sentence does not contain any pronouns, changed_sentence will be "".

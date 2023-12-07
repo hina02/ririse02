@@ -15,10 +15,9 @@ async def websocket_endpoint(websocket: WebSocket):
     # クライアントからのJSONメッセージを待つ
     data = await websocket.receive_text()
     input_data = WebSocketInputData(**json.loads(data))
-    input_text = input_data.input_text
     title = input_data.title
 
-    # StreamChatClientを取得
+    # StreamChatClientを取得（input_dataを渡し、ここで、user_inputの更新も行う）
     client = get_stream_chat_client(input_data)
     messages = get_messages(title)
     former_node_id = messages[-1].get("id") if messages else None   # 最新のメッセージのidを取得
@@ -26,20 +25,20 @@ async def websocket_endpoint(websocket: WebSocket):
 
     # メッセージを受信した後、generate_audioを呼び出す
     await asyncio.gather(
-        client.wb_generate_audio(input_text, websocket, 3),  # レスポンス、音声合成
+        client.wb_generate_audio(websocket, 2),  # レスポンス、音声合成
         client.wb_get_memory_from_triplet(websocket),  # triplet, graph（ノード情報）獲得
     )
 
     # 全ての処理が終了した後で、Neo4jに保存し、保存したノードのidを返す。
     new_node_id = await store_message(
         input_data=input_data,
-        ai_response=client.temp_memory,
+        ai_response="\n".join(client.temp_memory),
         user_input_entity=client.user_input_entity)
     message = {"type": "node_id", "node_id": new_node_id}
     await websocket.send_text(json.dumps(message))
 
     # チャットを終了し、temp_memoryをshort_memoryに移す。
-    client.closechat()
+    client.close_chat()
 
     # websocketを閉じる
     await websocket.close()

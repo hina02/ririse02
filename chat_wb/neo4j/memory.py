@@ -188,7 +188,7 @@ async def store_message(
             create_time=create_time,
             source=source,
             user_input=user_input,
-            user_input_entity=json.dumps(user_input_entity),
+            user_input_entity=user_input_entity.model_dump_json(),
             ai_response=ai_response,
             vector=vector,
         )
@@ -197,15 +197,15 @@ async def store_message(
 
         # 親ノード(Title)からのリレーション(CONTAIN)を作成する
         session.run(
-            "MATCH (a:Title {title: $title}), (b:Message {user_input: $user_input}) CREATE (a)-[:CONTAIN]->(b)",
+            "MATCH (a:Title {title: $title}), (b) WHERE id(b) = $new_node_id CREATE (a)-[:CONTAIN]->(b)",
             title=title,
-            user_input=user_input,
+            new_node_id=new_node_id,
         )
 
         # 前のノード(Message)からのリレーション(FOLLOW)と(PRECEDES)を作成
         if former_node_id is not None:
             session.run(
-                """MATCH (b:Message), (c:Message)
+                """MATCH (b), (c)
                         WHERE id(b) = $new_node_id AND id(c) = $former_node_id
                         CREATE (b)-[:FOLLOW]->(c)
                         CREATE (c)-[:PRECEDES]->(b)""",
@@ -219,16 +219,14 @@ async def store_message(
         if user_input_entity is not None:
             for node in user_input_entity.nodes:
                 session.run(
-                    """MATCH (a:Message)
-                        WHERE id(a) = $new_node_id
-                        CALL apoc.cypher.run('MATCH (b:`'+ $label +'` {name: $name}) RETURN b', {name: $name}) YIELD value as b
-                        CREATE (a)-[:CONTAIN]->(b.value)""",
-                    label=node.label,
+                    f"""MATCH (b) WHERE id(b) = $new_node_id
+                        MATCH (d:`{node.label}` {{name: $name}})
+                        CREATE (b)-[:CONTAIN]->(d)""",
                     name=node.name,
                     new_node_id=new_node_id,
                 )
-                logger.info(f"Message Node Relation with entity created: {user_input_entity.nodes}")
-                
+                logger.info(f"Message Node Relation with Entity created: {node}")
+
     return new_node_id
 
 

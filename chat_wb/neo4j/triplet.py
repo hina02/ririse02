@@ -206,10 +206,6 @@ class TripletsConverter():
             logger.error("Invalid response for json.loads")
             return None  # 出力なしの場合は、Noneを返す。単純質問は、Noneになる傾向。
         triplets = Triplets.create(response, self.user_name, self.ai_name)
-
-        # convert I to user, You to AI
-
-
         logger.info(f"triplets: {triplets}")
         return triplets
 

@@ -48,7 +48,7 @@ class StreamChatClient():
         self.AI = input_data.AI
         self.title = input_data.title
         self.client = OpenAI()
-        self.temp_memory_user_input: str = input_data.user_input
+        self.temp_memory_user_input: str = input_data.input_text
         self.temp_memory: list[str] = []
         self.short_memory: list[str] = []  # 短期記憶(n=<7)
         self.long_memory: Triplets | None = None  # 長期記憶(from neo4j)
@@ -106,9 +106,9 @@ class StreamChatClient():
         response_text = response.choices[0].message.content
         return response_text
 
-    def closechat(self):
+    def close_chat(self):
         # temp_memoryをshort_memoryに追加
-        self.short_memory.append("".join(self.temp_memory))
+        self.short_memory.append("\n".join(self.temp_memory))
 
         # short_memoryが7個を超えたら、古いものから削除
         while len(self.short_memory) > 7:
@@ -151,7 +151,7 @@ class StreamChatClient():
     # websocketに対応して、tripletの抽出、保存を行い、検索結果を送信する関数
     async def wb_get_memory_from_triplet(self, websocket: WebSocket):
         # textからTriplets(list[Node], list[Relationship])を抽出
-        triplets = await TripletsConverter(user=self.user, AI=self.AI).run_sequences(self.temp_memory_user_input, self.client)
+        triplets = await TripletsConverter(user_name=self.user, ai_name=self.AI).run_sequences(self.temp_memory_user_input, self.client)
         logger.info(f"triplets: {triplets}")
         if triplets is None:
             return None  # 出力なしの場合は、Noneを返す。
@@ -168,7 +168,6 @@ class StreamChatClient():
 
         # Neo4jから、Tripletsに含まれるノードと関係を取得
         result = await get_memory_from_triplet(self.user_input_entity)
-        result = None
         if result is None:
             return None
         self.long_memory = result
