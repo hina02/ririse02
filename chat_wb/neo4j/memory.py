@@ -137,22 +137,26 @@ def query_vector(query: str, label: str, k: int = 3):
     return nodes
 
 
-async def create_and_update_title(title: str) -> int:
+async def create_and_update_title(title: str, new_title: str | None = None) -> int:
     """Titleノードを作成、更新する"""
+    # title名でベクトル作成
+    pa_vector = get_embedding(new_title) if new_title else get_embedding(title)
+    current_time = time.time()
+
     with driver.session() as session:
-        # title名でベクトル作成
-        pa_vector = get_embedding(title)
-        current_time = time.time()
         session.run(
             """
             MERGE (a:Title {title: $title})
-            ON CREATE SET a.create_time = $create_time, a.update_time = $create_time, a.embedding = $vector
-            ON MATCH SET a.update_time = $update_time, a.embedding = $vector
+            ON CREATE SET a.create_time = $create_time, a.update_time = $create_time, a.title = $new_title
+            ON MATCH SET a.update_time = $update_time, a.title = $new_title
+            WITH a
+            CALL db.create.setNodeVectorProperty(a, 'embedding', $vector)
             """,
             title=title,
-            vector=pa_vector,
+            new_title=new_title if new_title else title,
             create_time=current_time,
-            update_time=current_time
+            update_time=current_time,
+            vector=pa_vector,
         )
         logger.info(f"Title Node created: {title}")
 
@@ -191,8 +195,8 @@ async def store_message(
                              ai_response: $ai_response})
                              WITH b
                              CALL db.create.setNodeVectorProperty(b, 'embedding', $vector)
-                             YIELD node
-                             RETURN id(b) AS node_id""",
+                             RETURN id(b) AS node_id
+                            """,
             create_time=create_time,
             source=source,
             user_input=user_input,
@@ -205,7 +209,7 @@ async def store_message(
 
         # 親ノード(Title)からのリレーション(CONTAIN)を作成する
         session.run(
-            "MATCH (a), (b) WHERE id(a) = $title_node_id AND id(b) = $new_node_id CREATE (a)-[:CONTAIN]->(b)",
+            "MATCH (a), (b) WHERE id(a) = $title_id AND id(b) = $new_node_id CREATE (a)-[:CONTAIN]->(b)",
             title_id=title_id,
             new_node_id=new_node_id,
         )

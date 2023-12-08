@@ -41,5 +41,5 @@ async def store_memory_from_triplet_api(text: str):
 
 
 @memory_router.get("/create_and_update_title", tags=["memory"])
-async def create_and_update_title_api(title: str):
-    return await create_and_update_title(title)
+async def create_and_update_title_api(title: str, new_title: str | None = None):
+    return await create_and_update_title(title, new_title)

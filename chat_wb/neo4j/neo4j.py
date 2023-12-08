@@ -380,9 +380,10 @@ async def get_node_relationships(label: str, name: str) -> list[Relationships] |
     with driver.session() as session:
         result = session.run(
             f"""
-            MATCH (a:{label} {{name: $name}})-[r]->(b)
-            RETURN  type(r) as relationship_type, r.properties as properties, b.label as label2, b.name as name2
-        """,
+            MATCH (a:{label}) WHERE $name IN a.name_variations OR a.name = $name
+            MATCH (a)-[r]->(b)
+            RETURN type(r) as relationship_type, r.properties as properties, labels(b)[0] as label2, b.name as name2
+            """,
             name=name,
         )
         relationships = []
@@ -399,15 +400,19 @@ async def get_node_relationships(label: str, name: str) -> list[Relationships] |
         return relationships if relationships else None
 
 
-# ノードとノードの間にあるすべてのリレーションとプロパティ（content）を得る
+# ノードとノードの間にあるすべてのリレーションとプロパティ（content）を得る。
+# （labelずれがある可能性がある。ここでは広く検索するため、labelを指定しない、ことも検討する。処理時間とのトレードオフ）
 async def get_node_relationships_between(
     label1: str, label2: str, name1: str, name2: str
 ) -> list[Relationships] | None:
     with driver.session() as session:
         result = session.run(
             f"""
-      MATCH (a:{label1} {{name: $name1}})-[r]->(b:{label2} {{name: $name2}})
-      RETURN  type(r) as relationship_type, r.properties as properties""",
+            MATCH (a:{label1})-[r]->(b:{label2})
+            WHERE $name1 IN a.name_variations OR a.name = $name1
+            AND $name2 IN b.name_variations OR b.name = $name2
+            RETURN type(r) as relationship_type, r.properties as properties
+            """,
             name1=name1,
             name2=name2,
         )
@@ -418,6 +423,8 @@ async def get_node_relationships_between(
                 start_node=name1,
                 end_node=name2,
                 properties=record["properties"],
+                start_node_label=label1,
+                end_node_label=label2,
             )
             relationships.append(relation)
         return relationships if relationships else None
