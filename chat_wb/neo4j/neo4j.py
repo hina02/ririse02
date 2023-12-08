@@ -375,13 +375,15 @@ async def get_node(label: str, name: str) -> list[Node] | None:
         return nodes if nodes else None
 
 
-# ノードからすべてのリレーションとプロパティ（content）、終点ノードを得る
+# ノードからすべてのリレーションとプロパティ、終点ノードを得る
 async def get_node_relationships(label: str, name: str) -> list[Relationships] | None:
     with driver.session() as session:
         result = session.run(
             f"""
             MATCH (a:{label} {{name: $name}})-[r]->(b)
-            RETURN  type(r) as relationship_type, r.properties as properties, b.label as label2, b.name as name2
+            RETURN  type(r) as relationship_type, r.properties as properties, b.label as label2
+                    startNode(r).name as start_node_name,
+                    endNode(r).name as end_node_name
         """,
             name=name,
         )
@@ -389,25 +391,28 @@ async def get_node_relationships(label: str, name: str) -> list[Relationships] |
         for record in result:
             relation = Relationships(
                 type=record["relationship_type"],
-                start_node=name,
-                end_node=record["name2"],
+                start_node=record["start_node_name"],
+                end_node=record["end_node_name"],
                 properties=record["properties"],
-                start_node_label=label,
-                end_node_label=record["label2"],
+                start_node_label=label if record["start_node_name"] == name else record["label2"],
+                end_node_label=record["label2"] if record["end_node_name"] != name else label,
             )
             relationships.append(relation)
         return relationships if relationships else None
 
 
-# ノードとノードの間にあるすべてのリレーションとプロパティ（content）を得る
+# ノードとノードの間にあるすべてのリレーションとプロパティを得る
 async def get_node_relationships_between(
     label1: str, label2: str, name1: str, name2: str
 ) -> list[Relationships] | None:
     with driver.session() as session:
         result = session.run(
             f"""
-      MATCH (a:{label1} {{name: $name1}})-[r]->(b:{label2} {{name: $name2}})
-      RETURN  type(r) as relationship_type, r.properties as properties""",
+      MATCH (a:{label1} {{name: $name1}})-[r]-(b:{label2} {{name: $name2}})
+      RETURN  type(r) as relationship_type, 
+              startNode(r).name as start_node_name, 
+              endNode(r).name as end_node_name,
+              r.properties as properties""",
             name1=name1,
             name2=name2,
         )
@@ -415,8 +420,8 @@ async def get_node_relationships_between(
         for record in result:
             relation = Relationships(
                 type=record["relationship_type"],
-                start_node=name1,
-                end_node=name2,
+                start_node=record["start_node_name"],
+                end_node=record["end_node_name"],
                 properties=record["properties"],
             )
             relationships.append(relation)

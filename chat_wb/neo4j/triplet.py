@@ -32,6 +32,7 @@ class TripletsConverter():
         self.client = OpenAI()
         self.user_name = user_name
         self.ai_name = ai_name
+        self.text_type = None
 
     async def summerize_code(self, text: str):
         """Summerize code block for burden of triplets"""
@@ -125,6 +126,7 @@ class TripletsConverter():
         )
         response_json = response.choices[0].message.content
         result = json.loads(response_json).get("type")
+        self.text_type = result  # 判定結果を保存
         logger.info(result)
         return result
 
@@ -209,46 +211,44 @@ class TripletsConverter():
         logger.info(f"triplets: {triplets}")
         return triplets
 
+    @atimer
+    async def get_memory_from_triplet(triplets: Triplets) -> Triplets:
+        """user_input_entityに基づいて、Neo4jへのクエリレスポンスを取得 1回で1秒程度"""
+        tasks = []
+        # nodeの取得
+        for node in triplets.nodes:
+            tasks.append(get_node(node.label, node.name))
+            # nodeが持つすべてのrealtionを取得
+            tasks.append(get_node_relationships(node.label, node.name))
 
-@atimer
-async def get_memory_from_triplet(triplets: Triplets) -> Triplets:
-    # Neo4jへのクエリレスポンスを取得 1回で1秒程度
-    # functionにする(つまりAIがどれを使うか選択)ことを検討。ノード取得を使うか？を、各nodeに対して判断する。
-    tasks = []
-    # nodeの取得
-    for node in triplets.nodes:
-        tasks.append(get_node(node.label, node.name))
-        # nodeが持つすべてのrealtionを取得
-        tasks.append(get_node_relationships(node.label, node.name))
+        if triplets.relationships:
+            for relationship in triplets.relationships:
+                # node1とnode2間のrelationを取得
+                tasks.append(get_node_relationships_between(
+                    relationship.start_node_label,
+                    relationship.end_node_label,
+                    relationship.start_node,
+                    relationship.end_node))
 
-    if triplets.relationships:
-        for relationship in triplets.relationships:
-            # node1とnode2間のrelationを取得
-            tasks.append(get_node_relationships_between(
-                relationship.start_node_label,
-                relationship.end_node_label,
-                relationship.start_node,
-                relationship.end_node))
+        responses = await asyncio.gather(*tasks)
+        # 結果を、nodesとrelationsに整理する。
+        nodes = []
+        relationships = []
+        for response in responses:
+            if response and isinstance(response[0], Node):
+                nodes.extend(response)
+            elif response and isinstance(response[0], Relationships):
+                relationships.extend(response)
+        logger.info(f"nodes: {nodes}")
+        logger.info(f"relations: {relationships}")
+        query_results = Triplets(nodes=nodes, relationships=relationships)
 
-    responses = await asyncio.gather(*tasks)
-    # 結果を、nodesとrelationsに整理する。
-    nodes = []
-    relationships = []
-    for response in responses:
-        if response and isinstance(response[0], Node):
-            nodes.extend(response)
-        elif response and isinstance(response[0], Relationships):
-            relationships.extend(response)
-    logger.info(f"nodes: {nodes}")
-    logger.info(f"relations: {relationships}")
-    query_results = Triplets(nodes=nodes, relationships=relationships)
+        return query_results
 
-    return query_results
-
-
-def store_memory_from_triplet(triplets: Triplets):
-    for node in triplets.nodes:
-        create_update_append_node(node)
-    if triplets.relationships:
-        for relation in triplets.relationships:
-            create_update_relationship(relation)
+    def store_memory_from_triplet(triplets: Triplets):
+        """user_input_entityに基づいて、Neo4jにノード、リレーションシップを保存"""
+        for node in triplets.nodes:
+            create_update_append_node(node)
+        if triplets.relationships:
+            for relation in triplets.relationships:
+                create_update_relationship(relation)

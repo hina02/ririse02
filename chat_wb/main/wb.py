@@ -9,7 +9,7 @@ from fastapi import WebSocket
 from openai import OpenAI
 from openai_api.models import ChatPrompt
 from chat_wb.voice.text2voice import playVoicePeak
-from chat_wb.neo4j.triplet import TripletsConverter, get_memory_from_triplet, store_memory_from_triplet
+from chat_wb.neo4j.triplet import TripletsConverter
 from chat_wb.models.neo4j import Triplets
 from chat_wb.models.wb import WebSocketInputData
 
@@ -151,7 +151,8 @@ class StreamChatClient():
     # websocketに対応して、tripletの抽出、保存を行い、検索結果を送信する関数
     async def wb_get_memory_from_triplet(self, websocket: WebSocket):
         # textからTriplets(list[Node], list[Relationship])を抽出
-        triplets = await TripletsConverter(user_name=self.user, ai_name=self.AI).run_sequences(self.temp_memory_user_input, self.client)
+        converter = TripletsConverter(user_name=self.user, ai_name=self.AI)
+        triplets = await converter.run_sequences(self.temp_memory_user_input, self.client)
         logger.info(f"triplets: {triplets}")
         if triplets is None:
             return None  # 出力なしの場合は、Noneを返す。
@@ -167,14 +168,15 @@ class StreamChatClient():
         logger.info(f"user_input_entity: {self.user_input_entity}")
 
         # Neo4jから、Tripletsに含まれるノードと関係を取得
-        result = await get_memory_from_triplet(self.user_input_entity)
+        result = await converter.get_memory_from_triplet(self.user_input_entity)
         if result is None:
             return None
         self.long_memory = result
         logger.info(f"long_memory: {self.long_memory}")
 
-        # TripletsをNeo4jに保存
-        store_memory_from_triplet(triplets)
+        # user_inputが質問文でない場合、TripletsをNeo4jに保存
+        if converter.text_type != "question":
+            await converter.store_memory_from_triplet(triplets)
 
 
     # テキスト生成から音声合成、再生までを統括する関数

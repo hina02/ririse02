@@ -58,9 +58,10 @@ TEXT_TRIAGER_PROMPT = """
 Given a text, your task is to identify the type of text and return the type of text.
 If it is constructed from "code blocks" or "error logs": type is "code".
 elif it is long documents like manual, tutorial, journal, report, API document, etc: type is "document".
+elif it is type of question: type is "question".
 else: type is "chat".
 Output json format is here.
-{{"type": "chat" or "code" or "document"}}
+{{"type": "chat" or "code" or "document" pr "question"}}
 """
 
 # fetch_label_and_relationship_type_sets
