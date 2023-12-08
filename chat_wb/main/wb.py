@@ -12,13 +12,14 @@ from chat_wb.voice.text2voice import playVoicePeak
 from chat_wb.neo4j.triplet import TripletsConverter
 from chat_wb.models.neo4j import Triplets
 from chat_wb.models.wb import WebSocketInputData
+from chat_wb.models.wb import ShortMemory, Memory
 
 logger = getLogger(__name__)
 
 
 # 音声合成して、wavファイルのfilepathを返す
-async def get_voice(text: str):
-    file_path = await playVoicePeak(script=text, narrator="Asumi Ririse")
+async def get_voice(text: str, narrator: str = "Asumi Ririse"):
+    file_path = await playVoicePeak(script=text, narrator=narrator)
 
     if not file_path:
         return {
@@ -49,21 +50,50 @@ class StreamChatClient():
         self.title = input_data.title
         self.client = OpenAI()
         self.temp_memory_user_input: str = input_data.input_text
-        self.temp_memory: list[str] = []
-        self.short_memory: list[str] = []  # 短期記憶(n=<7)
-        self.long_memory: Triplets | None = None  # 長期記憶(from neo4j)
+        self.temp_memory: list[str] = []   # ai_responseの一時保存
+        self.short_memory: ShortMemory = ShortMemory()  # チャットの履歴、memoryを最大7個まで格納する
+        self.activated_memory: Triplets | None = None   # short_memoryのうち、user_input_entityに関連するもの
         self.user_input_entity: Triplets | None = None  # ユーザー入力から抽出したTriplets
-        logger.info(f"short_memory: {self.short_memory}")
 
     def set_user_input(self, user_input: str):
         self.temp_memory_user_input = user_input
 
     # 短い文章で出力を返す（これ複数回で1回の返答）
     def streamchat(self, k: int, input_text: str | None = None, long_memory: Triplets | None = None, max_tokens: int = 240):
-        # prompt
+        # system_prompt
         system_prompt = """Output is Japanese.
                         Continue to your previous sentences.
                         Don't reveal hidden information."""
+
+        # activated_memoryの追加
+        if self.activated_memory:
+            activated_memory_str = "\n".join(self.activated_memory)
+            system_prompt += (f"""
+            ----------------------------------------
+            Background information from your memory:
+            {activated_memory_str}
+            ----------------------------------------
+            """)
+
+        # neo4jから取得したばかりの情報の追加
+        if long_memory:
+            self.long_memory = "\n".join(long_memory)
+
+        if self.long_memory:
+            system_prompt += (f"""
+            ----------------------------------------
+            Background information from your memory:
+            {self.long_memory}
+            ----------------------------------------
+            """)
+
+        # short_memory
+        if self.short_memory:
+            ai_prompt = "\n".join(self.short_memory) + "\n----------------------------------------\n" + "".join(self.temp_memory)
+        else:
+            ai_prompt = "".join(self.temp_memory)   # 単純にこれまでの履歴を入れた場合、それに続けて生成される。
+
+        # user_prompt
         # 1回目のuser_prompt
         if input_text is not None:
             user_prompt = f"""user: {input_text}"""
@@ -72,22 +102,8 @@ class StreamChatClient():
             user_prompt = f"""user: {self.temp_memory_user_input}
                               user:continue it."""
 
-        # long_memoryがある場合、それをinput_textに追加する。
-        if long_memory:
-            self.long_memory = "\n".join(long_memory)
-
-        if self.long_memory:
-            user_prompt += (f"""
-            ----------------------------------------
-            Memory from Database:
-            {self.long_memory}
-            ----------------------------------------
-            """)
-
-        if self.short_memory:
-            ai_prompt = "\n".join(self.short_memory) + "\n----------------------------------------\n" + "".join(self.temp_memory)
-        else:
-            ai_prompt = "".join(self.temp_memory)   # 単純にこれまでの履歴を入れた場合、それに続けて生成される。
+        # ai_prompt
+        ai_prompt = "".join(self.temp_memory)   # 単純にこれまでの履歴を入れた場合、それに続けて生成される。
 
         messages = ChatPrompt(
             system_message=system_prompt,
@@ -107,16 +123,18 @@ class StreamChatClient():
         return response_text
 
     def close_chat(self):
-        # temp_memoryをshort_memoryに追加
-        self.short_memory.append("\n".join(self.temp_memory))
+        # user_input, ai_response, long_memoryをまとめて、short_memory classに格納する。
+        self.short_memory.memory_turn_over(
+            user_input=self.temp_memory_user_input,
+            ai_response="\n".join(self.temp_memory),
+            long_memory=self.long_memory
+        )
 
-        # short_memoryが7個を超えたら、古いものから削除
-        while len(self.short_memory) > 7:
-            self.short_memory.pop(0)
-
-        # temp_memoryとlong_memoryをリセット
+        # user_input_entity、temp_memory、long_memory、activated_memoryをリセット
+        self.user_input_entity = None
         self.temp_memory = []
         self.long_memory = None
+        self.activated_memory = None
         logger.info(f"client title: {self.title}")
         logger.info(f"short_memory: {self.short_memory}")
 
@@ -167,6 +185,13 @@ class StreamChatClient():
         self.user_input_entity = Triplets(nodes=nodes, relationships=relations)
         logger.info(f"user_input_entity: {self.user_input_entity}")
 
+        # short_memoryからの関連情報の選択
+        self.activated_memory = self.short_memory.activate_memory(self.user_input_entity)
+
+        # websocketにactivated_memoryを送信
+        message = {"type": "entity", "entity": self.activated_memory.dict()}
+        await websocket.send_text(json.dumps(message))
+
         # Neo4jから、Tripletsに含まれるノードと関係を取得
         result = await converter.get_memory_from_triplet(self.user_input_entity)
         if result is None:
@@ -183,6 +208,8 @@ class StreamChatClient():
     async def wb_generate_audio(
         self, websocket: WebSocket, k: int = 4
     ):
+        # レスポンス作成前に、user_inputを音声合成して送信
+        await _get_voice(self.temp_memory_user_input, websocket, narrator="Asumi Shuo")
 
         # historyと同じ内容かどうかを調べて、同じなら生成しないようにできるかもしれない。（function callingか）
         code_block = []
@@ -192,7 +219,7 @@ class StreamChatClient():
             max_tokens = 80 if i == 0 else 160 if i == 1 else 240  # 初回応答速度を上げるために、80で渡す。段階的に増加。
             input_text = self.temp_memory_user_input if i == 0 else None  # 初回のみ受け取ったテキストを渡す。
             response = self.streamchat(
-                k=k, input_text=input_text, max_tokens=max_tokens  # long_memory=self.long_memory
+                k=k, input_text=input_text, max_tokens=max_tokens, long_memory=self.long_memory
             )  # ここにentityを入れれば、global変数が変更されたタイミングで、適用される。
 
             # テキストを正規表現で分割してリストに整形
@@ -243,9 +270,9 @@ async def handle_code_block(code_block_content, websocket: WebSocket):
 
 
 # 音声合成
-async def _get_voice(text: str, websocket: WebSocket):
+async def _get_voice(text: str, websocket: WebSocket, narrator: str = "Asumi Ririse"):
     text = text.replace(".", "、")  # 1. 2. のような箇条書きを、ポーズとして認識可能な1、2、に変換する。
-    audio_path = await get_voice(text)
+    audio_path = await get_voice(text, narrator=narrator)
 
     # 最大5秒間、ファイルが存在するか確認
     for _ in range(50):  # 0.1秒 * 20回 = 2秒

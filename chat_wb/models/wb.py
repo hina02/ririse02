@@ -15,48 +15,48 @@ class WebSocketInputData(BaseModel):
 
 
 
-class Memory(BaseModel):
+class TempMemory(BaseModel):
     user_input: str
     ai_response: str
-    from_long_memory: Triplets | None = None         # 長期記憶(from neo4j)
+    triplets: Triplets | None = None         # 長期記憶(from neo4j)
 
 
 class ShortMemory(BaseModel):
-    short_memory: list[Memory] = []
+    short_memory: list[TempMemory] = []
+    memory_limit: int = 7
 
-    @classmethod
-    def memory_turn_over(self):
-        latest_memory = Memory(
-            user_input=self.temp_memory_user_input,
-            ai_response="".join(self.temp_memory),
-            long_memory=self.long_memory,
+    def memory_turn_over(self, user_input: str, ai_response: str, long_memory: Triplets | None = None):
+        temp_memory = TempMemory(
+            user_input=user_input,
+            ai_response=ai_response,
+            triplets=long_memory,
         )
         # short_memoryに追加
-        short_memory.append(latest_memory)
+        self.short_memory.append(temp_memory)
 
-        # short_memoryが7個を超えたら、古いものから削除
-        while len(self.short_memory) > 7:
+        # short_memoryがmemory_limit(default = 7)個を超えたら、古いものから削除
+        while len(self.short_memory) > self.memory_limit:
             self.short_memory.pop(0)
-
-        # temp_memoryとlong_memoryをリセット
-        self.temp_memory = []
-        self.long_memory = None
-        logger.info(f"client title: {self.title}")
-        logger.info(f"short_memory: {self.short_memory}")
 
 
     # 入力されたuser_inputのentityに関連する情報を取得する。
+    # 優先順位（1. start_node, end_nodeの一致、2. node.nameの一致、3. relationの片方のnodeの一致）
     # Background information from your memory:として、system_promptに追加するのが適当か。
-    def activate_memory(self):
-        # self.user_input_entityを取得
-        nodes = self.user_input_entity.nodes if self.user_input_entity.nodes else []
-        relationships = self.user_input_entity.relationships if self.user_input_entity.relationships else []
+    def activate_memory(self, user_input_entity: Triplets):
+        # user_input_entityを取得
+        nodes = user_input_entity.nodes if user_input_entity.nodes else []
+        relationships = user_input_entity.relationships if user_input_entity.relationships else []
 
-        # long_memoryをセットに変換（重複を削除）
-        memory_nodes_set = set(node for triplet in self.long_memory for node in triplet.nodes)
-        memory_relationships_set = set(relationship for triplet in self.long_memory for relationship in triplet.relationships)
+        # 全てのtripletsを集め、セットに変換（重複を削除）
+        memory_nodes_set = set()
+        memory_relationships_set = set()
 
-        # Node(label, name), Relationship(start_node, end_node)が一致するものをlong_memoryから取得（propertiesを取得する目的）
+        for temp_memory in self.short_memory:
+            if temp_memory.triplets:
+                memory_nodes_set.update(temp_memory.triplets.nodes)
+                memory_relationships_set.update(temp_memory.triplets.relationships)
+
+        # 1. Node(label, name)が一致するものを取得（propertiesを取得する目的）
         for node in nodes:
             # memory_nodes_set から一致するノードを検索
             matching_node = next((mn for mn in memory_nodes_set if mn == node), None)
@@ -64,11 +64,15 @@ class ShortMemory(BaseModel):
                 # 一致するノードが見つかった場合、コピー
                 node = matching_node
 
+        # 2. Relationship(start_node, end_node)が一致するものを取得（propertiesを取得する目的）
         for relationship in relationships:
-            # memory_relationships_set から一致する関係を検索
             matching_relationship = next((mr for mr in memory_relationships_set if mr == relationship), None)
             if matching_relationship:
                 # 一致する関係が見つかった場合、コピー
                 relationship = matching_relationship
+
+        # 3. end_node <-[type="CONTAIN"]- Messageのrelationを検索して追加（relationを渡す目的）
+
+        # 4. end_node, start_nodeのいずれかに合致するrelationを検索して追加（relationを渡す目的）
 
         return Triplets(nodes=nodes, relationships=relationships)

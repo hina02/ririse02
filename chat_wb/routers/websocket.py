@@ -34,7 +34,7 @@ async def websocket_endpoint(websocket: WebSocket):
         input_data=input_data,
         ai_response="\n".join(client.temp_memory),
         user_input_entity=client.user_input_entity)
-    message = {"type": "node_id", "node_id": new_node_id}
+    message = {"type": "close", "node_id": new_node_id, "short_memory": client.short_memory}
     await websocket.send_text(json.dumps(message))
 
     # チャットを終了し、temp_memoryをshort_memoryに移す。
