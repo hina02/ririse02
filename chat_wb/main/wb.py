@@ -178,6 +178,13 @@ class StreamChatClient():
         message = {"type": "entity", "entity": self.activated_memory.model_dump_json() if self.activated_memory else None}
         await websocket.send_text(json.dumps(message))
 
+        # short_memoryからの関連情報の選択
+        self.activated_memory = self.short_memory.activate_memory(self.user_input_entity)
+
+        # websocketにactivated_memoryを送信
+        message = {"type": "entity", "entity": self.activated_memory.dict()}
+        await websocket.send_text(json.dumps(message))
+
         # Neo4jから、Tripletsに含まれるノードと関係を取得
         result = await converter.get_memory_from_triplet(triplets)
         if result is None:
