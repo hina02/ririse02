@@ -1,7 +1,8 @@
 from pydantic import BaseModel, validator
 from typing import Literal
 import base64
- 
+from chat_wb.models.wb import TempMemory, ShortMemory
+
 
 class Message(BaseModel):
     role: Literal["system", "user", "assistant"]
@@ -18,12 +19,19 @@ class ChatPrompt(BaseModel):
     system_message: str
     user_message: str | list[dict]
     assistant_message: str | None = None
+    short_memory: list[TempMemory] | None = None
 
     def create_messages(self) -> list:
-        messages = [
-            Message(role="system", content=self.system_message),
-            Message(role="user", content=self.user_message),
-        ]
+        """system, short_memory([user,assistant] * n), user, assistant"""
+        messages = []
+        messages.append(Message(role="system", content=self.system_message))
+        # short_memoryから、user, assistantのメッセージ履歴を取得
+        if self.short_memory is not None:
+            for temp_memory in self.short_memory:
+                messages.append(Message(role="user", content=temp_memory.user_input))
+                messages.append(Message(role="assistant", content=temp_memory.ai_response))
+        # 現在のuser, assistantのメッセージを追加
+        messages.append(Message(role="user", content=self.user_message))
         if self.assistant_message is not None:
             messages.append(Message(role="assistant", content=self.assistant_message))
         return messages

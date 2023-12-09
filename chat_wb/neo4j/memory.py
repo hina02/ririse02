@@ -4,10 +4,10 @@ import json
 import time
 from logging import getLogger
 from functools import lru_cache
-# from chat_wb.neo4j.triplet import run_sequences
+from typing import Literal
 from chat_wb.models.wb import WebSocketInputData
 from openai_api.common import get_embedding
-from chat_wb.models.neo4j import Triplets
+from chat_wb.models.neo4j import Triplets, Node
 
 # ロガー設定
 logger = getLogger(__name__)
@@ -108,7 +108,7 @@ def get_titles() -> list[str]:
     return nodes
 
 
-def query_vector(query: str, label: str, k: int = 3):
+def query_vector(query: str, label: Literal['Title', 'Message'], k: int = 3):
     """インデックスを作成したラベル(Title, Message)から、ベクトルを検索する"""
     vector = get_embedding(query)
 
@@ -134,7 +134,54 @@ def query_vector(query: str, label: str, k: int = 3):
             nodes.append(properties)
 
         nodes = sorted(nodes, key=lambda x: x["score"], reverse=True)
+
     return nodes
+
+
+def query_vector_with_filter(query: str, entity: list[Node], k: int = 20):
+    """entityとのマッチを用いて、messageのquery_vector結果をフィルタリングする。"""
+    nodes = query_vector(query, "Message", k=k)
+
+    # [nodes(node.user_input_entity.nodes)]に、[entityに含まれるnode.name]に合致するものがある場合、filtered_nodesに格納
+    filtered_nodes = []
+    entity_node_names = [node.name for node in entity]
+
+    for node in nodes:
+        # Message nodeから、作成時のuser_input_entityを取得
+        user_input_entity_json = node.get("user_input_entity")
+        if user_input_entity_json:
+            user_input_entity = json.loads(user_input_entity_json)
+            node_entities = user_input_entity.get("nodes", [])
+
+        # 一つでもentityに含まれるnode.nameがあれば、filtered_nodesに追加
+        for node_entity in node_entities:
+            if node_entity.get("name") in entity_node_names:
+                filtered_nodes.append(node)
+                break
+    return filtered_nodes
+
+
+def query_vector_with_filter(query: str, entity: list[Node], k: int = 20):
+    """entityとのマッチを用いて、messageのquery_vector結果をフィルタリングする。"""
+    nodes = query_vector(query, "Message", k=k)
+
+    # [nodes(node.user_input_entity.nodes)]に、[entityに含まれるnode.name]に合致するものがある場合、filtered_nodesに格納
+    filtered_nodes = []
+    entity_node_names = [node.name for node in entity]
+
+    for node in nodes:
+        # Message nodeから、作成時のuser_input_entityを取得
+        user_input_entity_json = node.get("user_input_entity")
+        if user_input_entity_json:
+            user_input_entity = json.loads(user_input_entity_json)
+            node_entities = user_input_entity.get("nodes", [])
+
+        # 一つでもentityに含まれるnode.nameがあれば、filtered_nodesに追加
+        for node_entity in node_entities:
+            if node_entity.get("name") in entity_node_names:
+                filtered_nodes.append(node)
+                break
+    return filtered_nodes
 
 
 async def create_and_update_title(title: str, new_title: str | None = None) -> int:
@@ -227,16 +274,31 @@ async def store_message(
             logger.info(f"Message Node Relation created: {new_node_id}")
 
         # user_input_entityへのリレーションを作成
-        # Message Nodeにcreate_timeがあるので、ここに時間を含める必要はない。空プロパティでOK。
+        # 情報をretrieveしやすいように、create_time, propertiesを保存する。
         if user_input_entity is not None:
             for node in user_input_entity.nodes:
-                session.run(
-                    f"""MATCH (b) WHERE id(b) = $new_node_id
-                        MATCH (d:`{node.label}` {{name: $name}})
-                        CREATE (b)-[:CONTAIN]->(d)""",
-                    name=node.name,
-                    new_node_id=new_node_id,
-                )
+                properties = node.properties
+                logger.info(f"properties: {properties}")
+
+                if properties:  # propertiesが空でない場合のみ、リレーションシップにプロパティを設定
+                    session.run(
+                        f"""MATCH (b) WHERE id(b) = $new_node_id
+                            MATCH (d:`{node.label}` {{name: $name}})
+                            CREATE (b)-[r:CONTAIN {{created_time: $created_time, properties: $properties}}]->(d)""",
+                        name=node.name,
+                        new_node_id=new_node_id,
+                        created_time=create_time,
+                        properties=properties
+                    )
+                else:  # propertiesが空の場合、created_timeのみをプロパティとして設定
+                    session.run(
+                        f"""MATCH (b) WHERE id(b) = $new_node_id
+                            MATCH (d:`{node.label}` {{name: $name}})
+                            CREATE (b)-[r:CONTAIN {{created_time: $created_time}}]->(d)""",
+                        name=node.name,
+                        new_node_id=new_node_id,
+                        created_time=create_time,
+                    )
                 logger.info(f"Message Node Relation with Entity created: {node}")
 
     return new_node_id

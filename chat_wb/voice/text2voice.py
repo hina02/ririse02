@@ -19,7 +19,7 @@ async def playVoicePeak(script: str, narrator: str = "Asumi Ririse"):
         sad = 0
         angry = 0
         fun = 0
-        speed = 120
+        speed = 110
         pitch = 0
         pose = 80
     elif narrator == "Asumi Ririse":

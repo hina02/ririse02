@@ -1,7 +1,8 @@
 import asyncio
 import json
 from logging import getLogger
-from openai import OpenAI
+import openai
+from openai import AsyncOpenAI
 from chat_wb.models.neo4j import Triplets
 from chat_wb.main.prompt import (
     CODE_SUMMARIZER_PROMPT,
@@ -15,7 +16,7 @@ from chat_wb.neo4j.neo4j import (
     get_node_relationships,
     get_node_relationships_between,
     get_node,
-    create_update_append_node,
+    create_update_node,
     create_update_relationship
 )
 from openai_api.models import ChatPrompt
@@ -28,10 +29,11 @@ logger = getLogger(__name__)
 
 class TripletsConverter():
     """OpenAI APIを用いて、textをtripletsに変換するクラス"""
-    def __init__(self, user_name: str = "彩澄しゅお", ai_name: str = "彩澄りりせ"):
-        self.client = OpenAI()
+    def __init__(self, client: AsyncOpenAI | None = None,  user_name: str = "彩澄しゅお", ai_name: str = "彩澄りりせ"):
+        self.client = AsyncOpenAI() if client is None else client
         self.user_name = user_name
         self.ai_name = ai_name
+        self.text_type = "question"  # neo4jに保存しない設定
 
     async def summerize_code(self, text: str):
         """Summerize code block for burden of triplets"""
@@ -42,7 +44,7 @@ class TripletsConverter():
             user_message=user_prompt,
         ).create_messages()
 
-        response = self.client.chat.completions.create(
+        response = await self.client.chat.completions.create(
             model="gpt-3.5-turbo-1106",
             messages=messages,
             max_tokens=240,
@@ -62,7 +64,7 @@ class TripletsConverter():
             user_message=user_prompt,
         ).create_messages()
 
-        response = self.client.chat.completions.create(
+        response = await self.client.chat.completions.create(
             model="gpt-3.5-turbo-1106",
             messages=messages,
             max_tokens=240,
@@ -81,7 +83,7 @@ class TripletsConverter():
             user_message=user_prompt,
         ).create_messages()
 
-        response = self.client.chat.completions.create(
+        response = await self.client.chat.completions.create(
             model="gpt-3.5-turbo-1106",
             messages=messages,
             max_tokens=240,
@@ -108,7 +110,14 @@ class TripletsConverter():
 
     # triage function
     async def triage_text(self, text: str) -> str:
-        """triage text to chat, code, document"""
+        """triage text to chat, question, code, document"""
+        # moderation
+        moderation_result = openai.moderations.create(input=text).results[0]
+        if moderation_result.flagged:
+            logger.info("openai policy violation")
+            return "openai_policy_violation"
+
+        # triage text
         system_prompt = TEXT_TRIAGER_PROMPT
         user_prompt = text
         messages = ChatPrompt(
@@ -116,7 +125,7 @@ class TripletsConverter():
             user_message=user_prompt,
         ).create_messages()
 
-        response = self.client.chat.completions.create(
+        response = await self.client.chat.completions.create(
             model="gpt-3.5-turbo-1106",
             messages=messages,
             max_tokens=20,
@@ -125,6 +134,7 @@ class TripletsConverter():
         )
         response_json = response.choices[0].message.content
         result = json.loads(response_json).get("type")
+        self.text_type = result  # 判定結果を保存
         logger.info(result)
         return result
 
@@ -140,7 +150,7 @@ class TripletsConverter():
         ).create_messages()
 
         # response生成
-        response = self.client.chat.completions.create(
+        response = await self.client.chat.completions.create(
             model="gpt-3.5-turbo-1106",
             messages=messages,
             temperature=0.0,
@@ -177,7 +187,7 @@ class TripletsConverter():
         ).create_messages()
 
         # response生成
-        response = self.client.chat.completions.create(
+        response = await self.client.chat.completions.create(
             model="gpt-3.5-turbo-1106",
             messages=messages,
             temperature=0.0,
@@ -187,11 +197,11 @@ class TripletsConverter():
         return response.choices[0].message.content
 
     @atimer
-    async def run_sequences(self, text: str, client: OpenAI | None = None) -> Triplets | None:
-        if client:
-            self.client = client
+    async def run_sequences(self, text: str) -> Triplets | None:        
         # triage text
         text_type = await self.triage_text(text=text)
+
+        # convert to triplets
         if text_type == "code":
             response_json = await self.summerize_code(text=text)
         elif text_type == "document":
@@ -209,46 +219,46 @@ class TripletsConverter():
         logger.info(f"triplets: {triplets}")
         return triplets
 
+    @staticmethod
+    @atimer
+    async def get_memory_from_triplet(triplets: Triplets) -> Triplets:
+        """user_input_entityに基づいて、Neo4jへのクエリレスポンスを取得 1回で1秒程度"""
+        tasks = []
+        # nodeの取得
+        for node in triplets.nodes:
+            tasks.append(get_node(node.label, node.name))
+            # nodeが持つすべてのrealtionを取得
+            tasks.append(get_node_relationships(node.label, node.name))
 
-@atimer
-async def get_memory_from_triplet(triplets: Triplets) -> Triplets:
-    # Neo4jへのクエリレスポンスを取得 1回で1秒程度
-    # functionにする(つまりAIがどれを使うか選択)ことを検討。ノード取得を使うか？を、各nodeに対して判断する。
-    tasks = []
-    # nodeの取得
-    for node in triplets.nodes:
-        tasks.append(get_node(node.label, node.name))
-        # nodeが持つすべてのrealtionを取得
-        tasks.append(get_node_relationships(node.label, node.name))
+        if triplets.relationships:
+            for relationship in triplets.relationships:
+                # node1とnode2間のrelationを取得
+                tasks.append(get_node_relationships_between(
+                    relationship.start_node_label,
+                    relationship.end_node_label,
+                    relationship.start_node,
+                    relationship.end_node))
 
-    if triplets.relationships:
-        for relationship in triplets.relationships:
-            # node1とnode2間のrelationを取得
-            tasks.append(get_node_relationships_between(
-                relationship.start_node_label,
-                relationship.end_node_label,
-                relationship.start_node,
-                relationship.end_node))
+        responses = await asyncio.gather(*tasks)
+        # 結果を、nodesとrelationsに整理する。
+        nodes = []
+        relationships = []
+        for response in responses:
+            if response and isinstance(response[0], Node):
+                nodes.extend(response)
+            elif response and isinstance(response[0], Relationships):
+                relationships.extend(response)
+        logger.info(f"nodes: {nodes}")
+        logger.info(f"relations: {relationships}")
+        query_results = Triplets(nodes=nodes, relationships=relationships)
 
-    responses = await asyncio.gather(*tasks)
-    # 結果を、nodesとrelationsに整理する。
-    nodes = []
-    relationships = []
-    for response in responses:
-        if response and isinstance(response[0], Node):
-            nodes.extend(response)
-        elif response and isinstance(response[0], Relationships):
-            relationships.extend(response)
-    logger.info(f"nodes: {nodes}")
-    logger.info(f"relations: {relationships}")
-    query_results = Triplets(nodes=nodes, relationships=relationships)
+        return query_results
 
-    return query_results
-
-
-def store_memory_from_triplet(triplets: Triplets):
-    for node in triplets.nodes:
-        create_update_append_node(node)
-    if triplets.relationships:
-        for relation in triplets.relationships:
-            create_update_relationship(relation)
+    @staticmethod
+    def store_memory_from_triplet(triplets: Triplets):
+        """user_input_entityに基づいて、Neo4jにノード、リレーションシップを保存"""
+        for node in triplets.nodes:
+            create_update_node(node)
+        if triplets.relationships:
+            for relation in triplets.relationships:
+                create_update_relationship(relation)

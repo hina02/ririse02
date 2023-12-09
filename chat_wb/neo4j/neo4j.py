@@ -19,7 +19,7 @@ driver = GraphDatabase.driver(uri, auth=(username, password))
 
 # ノードの更新
 # property要素について、上書きせずに、値を追加する関数。node_idを返す。
-def create_update_append_node(node: Node):
+def create_update_node(node: Node):
     label = node.label
     name = node.name
     properties = node.properties
@@ -375,26 +375,28 @@ async def get_node(label: str, name: str) -> list[Node] | None:
         return nodes if nodes else None
 
 
-# ノードからすべてのリレーションとプロパティ（content）、終点ノードを得る
+# ノードからすべてのリレーションとプロパティ、終点ノードを得る
 async def get_node_relationships(label: str, name: str) -> list[Relationships] | None:
     with driver.session() as session:
         result = session.run(
             f"""
             MATCH (a:{label}) WHERE $name IN a.name_variations OR a.name = $name
             MATCH (a)-[r]->(b)
-            RETURN type(r) as relationship_type, r.properties as properties, labels(b)[0] as label2, b.name as name2
-            """,
+            RETURN type(r) as relationship_type, r.properties as properties, labels(b)[0] as label2,
+                startNode(r).name as start_node_name,
+                endNode(r).name as end_node_name
+        """,
             name=name,
         )
         relationships = []
         for record in result:
             relation = Relationships(
                 type=record["relationship_type"],
-                start_node=name,
-                end_node=record["name2"],
+                start_node=record["start_node_name"],
+                end_node=record["end_node_name"],
                 properties=record["properties"],
-                start_node_label=label,
-                end_node_label=record["label2"],
+                start_node_label=label if record["start_node_name"] == name else record["label2"],
+                end_node_label=record["label2"] if record["end_node_name"] != name else label,
             )
             relationships.append(relation)
         return relationships if relationships else None
@@ -410,9 +412,11 @@ async def get_node_relationships_between(
             f"""
             MATCH (a:{label1})-[r]->(b:{label2})
             WHERE $name1 IN a.name_variations OR a.name = $name1
-            AND $name2 IN b.name_variations OR b.name = $name2
-            RETURN type(r) as relationship_type, r.properties as properties
-            """,
+                AND $name2 IN b.name_variations OR b.name = $name2
+            RETURN  type(r) as relationship_type,
+                startNode(r).name as start_node_name,
+                endNode(r).name as end_node_name,
+                r.properties as properties""",
             name1=name1,
             name2=name2,
         )
@@ -420,8 +424,8 @@ async def get_node_relationships_between(
         for record in result:
             relation = Relationships(
                 type=record["relationship_type"],
-                start_node=name1,
-                end_node=name2,
+                start_node=record["start_node_name"],
+                end_node=record["end_node_name"],
                 properties=record["properties"],
                 start_node_label=label1,
                 end_node_label=label2,

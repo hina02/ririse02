@@ -23,7 +23,7 @@ def get_embedding(text: str, model: str = "text-embedding-ada-002") -> list[floa
 
 
 # モデレーター
-def moderation(text: str) -> dict:
+async def moderation(text: str) -> dict:
     """Returns an object containing the moderation label and the moderation output.
     response.categories: list of strings, response.flagged: boolean"""
     response = openai.moderations.create(input=text).results[0]

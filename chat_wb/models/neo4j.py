@@ -74,7 +74,6 @@ class Triplets(BaseModel):
     @classmethod
     def create(cls, triplets_data, user_name: str, ai_name: str):
         """LLMで生成されたTripletsをTripletsオブジェクトに変換する"""
-        logger.info(f"triplets_data: {triplets_data}")
 
         nodes = []
         if 'Nodes' in triplets_data:
@@ -87,7 +86,6 @@ class Triplets(BaseModel):
                     elif name.lower() in SECOND_PERSON_PRONOUNS:
                         name = ai_name
                     nodes.append(Node.create(label=node.get('label'), name=name, properties=node.get('properties')))
-            logger.info(f"nodes: {nodes}")
             nodes = [node for node in nodes if node is not None]    # Noneを除外
 
         relationships = []
