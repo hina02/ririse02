@@ -1,7 +1,7 @@
 from neo4j import GraphDatabase
 import os
 import json
-import time
+from datetime import datetime
 from logging import getLogger
 from functools import lru_cache
 from typing import Literal
@@ -188,7 +188,9 @@ async def create_and_update_title(title: str, new_title: str | None = None) -> i
     """Titleノードを作成、更新する"""
     # title名でベクトル作成
     pa_vector = get_embedding(new_title) if new_title else get_embedding(title)
-    current_time = time.time()
+    # 現在のUTC日時を取得し、ISO 8601形式の文字列に変換
+    current_utc_datetime = datetime.utcnow()
+    current_time = current_utc_datetime.isoformat() + "Z"
 
     with driver.session() as session:
         session.run(
@@ -217,7 +219,8 @@ async def store_message(
     title = input_data.title
     user_input = input_data.input_text
     former_node_id = input_data.former_node_id
-    create_time = time.time()
+    current_utc_datetime = datetime.utcnow()
+    create_time = current_utc_datetime.isoformat() + "Z"
     update_time = create_time
 
     with driver.session() as session:
@@ -279,26 +282,18 @@ async def store_message(
             for node in user_input_entity.nodes:
                 properties = node.properties
                 logger.info(f"properties: {properties}")
-
-                if properties:  # propertiesが空でない場合のみ、リレーションシップにプロパティを設定
-                    session.run(
-                        f"""MATCH (b) WHERE id(b) = $new_node_id
-                            MATCH (d:`{node.label}` {{name: $name}})
-                            CREATE (b)-[r:CONTAIN {{created_time: $created_time, properties: $properties}}]->(d)""",
-                        name=node.name,
-                        new_node_id=new_node_id,
-                        created_time=create_time,
-                        properties=properties
-                    )
-                else:  # propertiesが空の場合、created_timeのみをプロパティとして設定
-                    session.run(
-                        f"""MATCH (b) WHERE id(b) = $new_node_id
-                            MATCH (d:`{node.label}` {{name: $name}})
-                            CREATE (b)-[r:CONTAIN {{created_time: $created_time}}]->(d)""",
-                        name=node.name,
-                        new_node_id=new_node_id,
-                        created_time=create_time,
-                    )
+                properties["created_time"] = create_time
+                session.run(
+                    f"""
+                        MATCH (b) WHERE id(b) = $new_node_id
+                        MATCH (d:`{node.label}` {{name: $name}})
+                        CREATE (b)-[r:CONTAIN]->(d)
+                        SET r = $props
+                    """,
+                    name=node.name,
+                    new_node_id=new_node_id,
+                    props=properties
+                )
                 logger.info(f"Message Node Relation with Entity created: {node}")
 
     return new_node_id

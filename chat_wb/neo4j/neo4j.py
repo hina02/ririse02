@@ -106,9 +106,8 @@ def create_update_relationship(relationships: Relationships):
                     WHERE id(r) = $relationship_id
                     SET r += $properties
                     """,
-                    start_node=start_node,
-                    end_node=end_node,
                     properties=properties,
+                    relationship_id=relationship_id,
                 )  # idが複数の場合、このクエリは実行されず、スルーされる。
 
                 message = f"""Relationship {{Node1:{start_node}}}-{{{relation_type}}}
@@ -372,18 +371,24 @@ async def get_node(label: str, name: str) -> list[Node] | None:
             properties.pop("name", None)  # 'name'をpropertiesから除去
             node = Node(label=label, name=name, properties=record["properties"])
             nodes.append(node)
+        logger.debug(f"nodes: {nodes}")
         return nodes if nodes else None
 
 
-# ノードからすべてのリレーションとプロパティ、終点ノードを得る
+# ノードからすべての双方向のリレーションとプロパティ、ノードを得る
 async def get_node_relationships(label: str, name: str) -> list[Relationships] | None:
     with driver.session() as session:
         result = session.run(
             f"""
-            MATCH (a:{label}) WHERE $name IN a.name_variations OR a.name = $name
-            MATCH (a)-[r]->(b)
-            RETURN type(r) as relationship_type, r.properties as properties, labels(b)[0] as label2,
-                startNode(r).name as start_node_name,
+            MATCH (a:{label}) WHERE $name IN a.name_variations OR a.name = $name OR a.user_input = $name
+            MATCH (a)-[r]-(b)
+            RETURN type(r) as relationship_type, properties(r) as properties,
+                labels(startNode(r))[0] as start_node_label,
+                labels(endNode(r))[0] as end_node_label,
+                CASE labels(startNode(r))[0]
+                    WHEN 'Message' THEN startNode(r).user_input
+                    ELSE startNode(r).name
+                END as start_node_name,
                 endNode(r).name as end_node_name
         """,
             name=name,
@@ -395,14 +400,15 @@ async def get_node_relationships(label: str, name: str) -> list[Relationships] |
                 start_node=record["start_node_name"],
                 end_node=record["end_node_name"],
                 properties=record["properties"],
-                start_node_label=label if record["start_node_name"] == name else record["label2"],
-                end_node_label=record["label2"] if record["end_node_name"] != name else label,
+                start_node_label=record["start_node_label"],
+                end_node_label=record["end_node_label"],
             )
             relationships.append(relation)
+        logger.info(f"relationships: {relationships}")
         return relationships if relationships else None
 
 
-# ノードとノードの間にあるすべてのリレーションとプロパティ（content）を得る。
+# ノードとノードの間にあるすべての双方向のリレーションとプロパティ（content）を得る。
 # （labelずれがある可能性がある。ここでは広く検索するため、labelを指定しない、ことも検討する。処理時間とのトレードオフ）
 async def get_node_relationships_between(
     label1: str, label2: str, name1: str, name2: str
@@ -410,7 +416,7 @@ async def get_node_relationships_between(
     with driver.session() as session:
         result = session.run(
             f"""
-            MATCH (a:{label1})-[r]->(b:{label2})
+            MATCH (a:{label1})-[r]-(b:{label2})
             WHERE $name1 IN a.name_variations OR a.name = $name1
                 AND $name2 IN b.name_variations OR b.name = $name2
             RETURN  type(r) as relationship_type,
@@ -431,6 +437,7 @@ async def get_node_relationships_between(
                 end_node_label=label2,
             )
             relationships.append(relation)
+        logger.debug(f"relationships: {relationships}")
         return relationships if relationships else None
 
 

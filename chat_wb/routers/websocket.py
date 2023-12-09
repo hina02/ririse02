@@ -25,7 +25,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
     # メッセージを受信した後、generate_audioを呼び出す
     await asyncio.gather(
-        client.wb_generate_audio(websocket, 2),  # レスポンス、音声合成
+        client.wb_generate_audio(websocket, 1),  # レスポンス、音声合成
         client.wb_get_memory_from_triplet(websocket),  # triplet, graph（ノード情報）獲得
     )
 

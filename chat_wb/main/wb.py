@@ -50,6 +50,7 @@ class StreamChatClient():
         self.title = input_data.title
         self.client = AsyncOpenAI()
         self.user_input: str = input_data.input_text
+        self.user_input_type: str | None = None  # user_inputのタイプ（question, statement, command, etc.）
         self.user_input_entity: Triplets | None = None  # ユーザー入力から抽出したTriplets
         self.temp_memory: list[str] = []   # ai_responseの一時保存
         self.long_memory: Triplets | None = None  # neo4jから取得した情報の一時保存
@@ -63,18 +64,16 @@ class StreamChatClient():
     async def streamchat(self, k: int, input_text: str | None = None, long_memory: Triplets | None = None, max_tokens: int = 240):
         # system_prompt
         system_prompt = """Output is Japanese.
-                        This is a friendly chat.
-                        If you can't answer, please ask 'wait', while you are 'searching' your memory.
                         Don't reveal hidden information.
                         """
 
         # activated_memoryとlong_memoryの追加
-        memory_info = None
+        memory_info = ""
         if self.activated_memory:
-            memory_info = self.activated_memory.model_dump_json()
+            memory_info += self.activated_memory.model_dump_json()
         elif long_memory:
             self.long_memory = long_memory
-            memory_info = long_memory.model_dump_json()
+            memory_info += long_memory.model_dump_json()
 
         # memory_infoが存在すればそれを、存在しなければ'Searching'をsystem_promptに追加
         system_prompt += f"""
@@ -83,7 +82,7 @@ class StreamChatClient():
         {memory_info if memory_info else "'Searching. wait a moment.'"}
         ----------------------------------------
         """
-        # logger.info(f"system_prompt: {system_prompt}")
+        logger.info(f"system_prompt: {system_prompt}")
 
         # user_prompt
         # 1回目のuser_prompt
@@ -163,8 +162,10 @@ class StreamChatClient():
     async def wb_get_memory_from_triplet(self, websocket: WebSocket):
         # textからTriplets(list[Node], list[Relationship])を抽出
         converter = TripletsConverter(client=self.client, user_name=self.user, ai_name=self.AI)
+        # triage text
+        self.user_input_type = await converter.triage_text(self.user_input)
+        # convert to triplets
         triplets = await converter.run_sequences(self.user_input)
-        logger.info(f"triplets: {triplets}")
         if triplets is None:
             return None  # 出力なしの場合は、Noneを返す。
 
@@ -172,47 +173,54 @@ class StreamChatClient():
         self.user_input_entity = triplets
 
         # short_memoryからの関連情報の選択
-        self.activated_memory = self.short_memory.activate_memory(self.user_input_entity)
+        self.activated_memory = await self.short_memory.activate_memory(self.user_input_entity)
 
         # websocketにactivated_memoryを送信
         message = {"type": "entity", "entity": self.activated_memory.model_dump_json() if self.activated_memory else None}
-        await websocket.send_text(json.dumps(message))
-
-        # short_memoryからの関連情報の選択
-        self.activated_memory = self.short_memory.activate_memory(self.user_input_entity)
-
-        # websocketにactivated_memoryを送信
-        message = {"type": "entity", "entity": self.activated_memory.dict()}
         await websocket.send_text(json.dumps(message))
 
         # Neo4jから、Tripletsに含まれるノードと関係を取得
         result = await converter.get_memory_from_triplet(triplets)
         if result is None:
             return None
-        logger.info(f"long_memory: {result}")
+        logger.info(f"long_memory: {len(result.nodes)} nodes, {len(result.relationships)} relationships")
         self.long_memory = result
 
         # user_inputが質問文でない場合、TripletsをNeo4jに保存
-        if converter.text_type != "question" and triplets:
+        if converter.user_input_type != "question" and triplets:
             await converter.store_memory_from_triplet(triplets)
 
     # テキスト生成から音声合成、再生までを統括する関数
     async def wb_generate_audio(
-        self, websocket: WebSocket, k: int = 4
+        self, websocket: WebSocket, k: int = 1
     ):
         # レスポンス作成前に、user_inputを音声合成して送信
         await _get_voice(self.user_input, websocket, narrator="Asumi Shuo")
+
+        # short_memoryがある場合、activated_memoryを待機する。
+        if self.short_memory.short_memory:
+            for _ in range(50):  # 0.1秒 * 50回 = 5秒
+                if self.activated_memory is not None:
+                    break
+                await asyncio.sleep(0.1)
+        # short_memoryがない場合、それが質問文なら、long_memoryを待機する。
+        else:
+            if self.user_input_type == "question":
+                for _ in range(50):  # 0.1秒 * 50回 = 5秒
+                    if self.long_memory is not None:
+                        break
+                    await asyncio.sleep(0.1)
 
         # historyと同じ内容かどうかを調べて、同じなら生成しないようにできるかもしれない。（function callingか）
         code_block = []
         inside_code_block = False
 
         for i in range(k):
-            max_tokens = 80 if i == 0 else 160 if i == 1 else 240  # 初回応答速度を上げるために、80で渡す。段階的に増加。
+            max_tokens = 80 if i == 0 else 240  # 初回応答速度を上げるために、80で渡す。
             input_text = self.user_input if i == 0 else None  # 初回のみ受け取ったテキストを渡す。
             response = await self.streamchat(
                 k=k, input_text=input_text, max_tokens=max_tokens, long_memory=self.long_memory
-            )  # ここにentityを入れれば、global変数が変更されたタイミングで、適用される。
+            )  # ここにself.long_memoryを入れておけば、global変数が変更されたタイミングで、適用される。
 
             # テキストを正規表現で分割してリストに整形
             formatted_text = self.format_text(response)
@@ -225,6 +233,7 @@ class StreamChatClient():
             # 整形した文章（終端記号区切り）をtemp_memoryに追加
             self.temp_memory.extend(formatted_text)
 
+            texts_for_get_audio = ""
             # """を含むコードブロックの確認
             for text in formatted_text:
                 if "```" in text:
@@ -246,7 +255,10 @@ class StreamChatClient():
 
                 # コードブロックでない場合、音声合成を行う。
                 else:
-                    await _get_voice(text, websocket)
+                    texts_for_get_audio += text
+
+            # 雑談のような短文の場合、Voicepeakの1processが遅いため、集約して渡す。（音声合成ソフトウェアの改善待ち）
+            await _get_voice(texts_for_get_audio, websocket)
 
         logger.info(f"temp_memory: {self.temp_memory}")
 

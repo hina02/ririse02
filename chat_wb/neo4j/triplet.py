@@ -33,7 +33,7 @@ class TripletsConverter():
         self.client = AsyncOpenAI() if client is None else client
         self.user_name = user_name
         self.ai_name = ai_name
-        self.text_type = "question"  # neo4jに保存しない設定
+        self.user_input_type = "question"  # questionの時は、neo4jに保存しない。
 
     async def summerize_code(self, text: str):
         """Summerize code block for burden of triplets"""
@@ -134,7 +134,7 @@ class TripletsConverter():
         )
         response_json = response.choices[0].message.content
         result = json.loads(response_json).get("type")
-        self.text_type = result  # 判定結果を保存
+        self.user_input_type = result  # 判定結果を保存
         logger.info(result)
         return result
 
@@ -198,13 +198,10 @@ class TripletsConverter():
 
     @atimer
     async def run_sequences(self, text: str) -> Triplets | None:        
-        # triage text
-        text_type = await self.triage_text(text=text)
-
         # convert to triplets
-        if text_type == "code":
+        if self.user_input_type == "code":
             response_json = await self.summerize_code(text=text)
-        elif text_type == "document":
+        elif self.user_input_type == "document":
             response_json = await self.summerize_docs(text=text)
         else:
             response_json = await self.summerize_chat(text=text)
@@ -248,14 +245,14 @@ class TripletsConverter():
                 nodes.extend(response)
             elif response and isinstance(response[0], Relationships):
                 relationships.extend(response)
-        logger.info(f"nodes: {nodes}")
-        logger.info(f"relations: {relationships}")
+        logger.debug(f"nodes: {nodes}")
+        logger.debug(f"relations: {relationships}")
         query_results = Triplets(nodes=nodes, relationships=relationships)
 
         return query_results
 
     @staticmethod
-    def store_memory_from_triplet(triplets: Triplets):
+    async def store_memory_from_triplet(triplets: Triplets):
         """user_input_entityに基づいて、Neo4jにノード、リレーションシップを保存"""
         for node in triplets.nodes:
             create_update_node(node)
