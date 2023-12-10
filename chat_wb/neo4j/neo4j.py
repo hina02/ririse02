@@ -1,14 +1,11 @@
 from logging import getLogger
 import os
-import re
 from typing import Any
-
-from chat_wb.models.neo4j import Node, Relationships
+from chat_wb.models import Node, Relationships
 from neo4j import GraphDatabase
 
 # ロガー設定
 logger = getLogger(__name__)
-
 
 # ドライバの初期化
 uri = os.environ["NEO4J_URI"]
@@ -52,7 +49,7 @@ def create_update_node(node: Node):
                 message = f"Node {{{label}:{name}}} already exists.\nProperty updated."
                 logger.info(message)
                 return {"status": "success", "message": message, "node_id": node_id}
-            
+
         # ノードが存在しない場合、新しいノードを作成。
         else:
             # プロパティにnameを追加し、リストとして初期化

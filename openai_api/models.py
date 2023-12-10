@@ -1,7 +1,7 @@
 from pydantic import BaseModel, validator
 from typing import Literal
 import base64
-from chat_wb.models.wb import TempMemory, ShortMemory
+from chat_wb.models import TempMemory
 
 
 class Message(BaseModel):

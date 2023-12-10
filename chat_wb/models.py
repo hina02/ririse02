@@ -1,6 +1,6 @@
 import re
 from logging import getLogger
-from pydantic import BaseModel, validator
+from pydantic import BaseModel
 
 # ロガー設定
 logger = getLogger(__name__)
@@ -60,7 +60,8 @@ class Relationships(BaseModel):
         end_node = remove_suffix(end_node)
         if not type or not start_node or not end_node:
             return None
-        return cls(type=type, start_node=start_node, end_node=end_node, properties=properties, start_node_label=start_node_label, end_node_label=end_node_label)
+        return cls(type=type, start_node=start_node, end_node=end_node, properties=properties,
+                   start_node_label=start_node_label, end_node_label=end_node_label)
 
 
 FIRST_PERSON_PRONOUNS = ["私", "i", "user", "me"]
@@ -78,7 +79,8 @@ class Triplets(BaseModel):
         nodes = []
         if 'Nodes' in triplets_data:
             for node in triplets_data['Nodes']:
-                if 'label' in node and ('name' in node or ('properties' in node and 'name' in node.get('properties'))):  # label と name のキーが存在することを確認
+                # label と name のキーが存在することを確認
+                if 'label' in node and ('name' in node or ('properties' in node and 'name' in node.get('properties'))):
                     name = node.get('name') if node.get('name') else node.get('properties').get('name')
                     # nameが"I","Me"或いは"User"、または"You"の場合、それぞれを"user_name"と"ai_name"に変換
                     if name.lower() in FIRST_PERSON_PRONOUNS:
@@ -94,8 +96,10 @@ class Triplets(BaseModel):
                 Relationships.create(
                     type=relationship['type'],
                     # start_node, end_nodeが"I","Me"或いは"User"、または"You"の場合、それぞれを"user_name"と"ai_name"に変換
-                    start_node=relationship['start_node'] if relationship['start_node'].lower() not in FIRST_PERSON_PRONOUNS + SECOND_PERSON_PRONOUNS else user_name if relationship['start_node'].lower() in FIRST_PERSON_PRONOUNS else ai_name,
-                    end_node=relationship['end_node'] if relationship['end_node'].lower() not in FIRST_PERSON_PRONOUNS + SECOND_PERSON_PRONOUNS else user_name if relationship['end_node'].lower() in FIRST_PERSON_PRONOUNS else ai_name,
+                    start_node=relationship['start_node'] if relationship['start_node'].lower() not in FIRST_PERSON_PRONOUNS +
+                    SECOND_PERSON_PRONOUNS else user_name if relationship['start_node'].lower() in FIRST_PERSON_PRONOUNS else ai_name,
+                    end_node=relationship['end_node'] if relationship['end_node'].lower() not in FIRST_PERSON_PRONOUNS +
+                    SECOND_PERSON_PRONOUNS else user_name if relationship['end_node'].lower() in FIRST_PERSON_PRONOUNS else ai_name,
                     properties=relationship['properties'],
                     start_node_label=next((node.label for node in nodes if node.name == relationship['start_node']), None),
                     end_node_label=next((node.label for node in nodes if node.name == relationship['end_node']), None)
@@ -141,3 +145,92 @@ def remove_suffix(name: str) -> str:
     )
     pattern = r"(" + "|".join(all_suffixes) + ")$"
     return re.sub(pattern, "", name)
+
+
+# WebScoketで受け取るデータのモデル
+class WebSocketInputData(BaseModel):
+    user: str
+    AI: str
+    source: str     # user_id or assistant_id(asst_) # user_id作成時にasst_の使用を禁止する
+    input_text: str
+    title: str
+    former_node_id: int | None = None   # node_idを渡すことで、途中のメッセージに新しいメッセージを追加することができる。使用する場合、フロントで枝分かれの表示方法の実装が必要。
+
+
+class TempMemory(BaseModel):
+    user_input: str
+    ai_response: str
+    triplets: Triplets | None = None         # 長期記憶(from neo4j)
+
+
+class ShortMemory(BaseModel):
+    short_memory: list[TempMemory] = []
+    memory_limit: int = 7
+    memory_nodes_set: set[Node] = set()
+    memory_relationships_set: set[Relationships] = set()
+
+    def memory_turn_over(self, user_input: str, ai_response: str, long_memory: Triplets | None = None):
+        temp_memory = TempMemory(
+            user_input=user_input,
+            ai_response=ai_response,
+            triplets=long_memory,
+        )
+        # short_memoryに追加
+        self.short_memory.append(temp_memory)
+
+        # short_memoryがmemory_limit(default = 7)個を超えたら、古いものから削除
+        while len(self.short_memory) > self.memory_limit:
+            self.short_memory.pop(0)
+
+        # セットに変換（重複を削除）
+        for temp_memory in self.short_memory:
+            if temp_memory.triplets:
+                self.memory_nodes_set.update(temp_memory.triplets.nodes)
+                self.memory_relationships_set.update(temp_memory.triplets.relationships)
+
+
+    # 入力されたuser_inputのentityに関連する情報を取得する。
+    # 優先順位（1. start_node, end_nodeの一致、2. node.nameの一致、3. relationの片方のnodeの一致）
+    # Background information from your memory:として、system_promptに追加するのが適当。
+    async def activate_memory(self, user_input_entity: Triplets):
+        # user_input_entityを取得
+        nodes = user_input_entity.nodes if user_input_entity.nodes else []
+        relationships = user_input_entity.relationships if user_input_entity.relationships else []
+
+        # setと一致するnodes, relationshipsを取得
+        matching_nodes = []
+        matching_relationships = []
+
+        # 1. Node(label, name)が一致するものを取得（propertiesを取得する目的）
+        for node in nodes:
+            # memory_nodes_set から一致するノードを検索
+            matching_node = next((mn for mn in self.memory_nodes_set if mn == node), None)
+            if matching_node:
+                matching_nodes.append(matching_node)
+
+        # 2. Relationship(start_node, end_node)が一致するものを取得（propertiesを取得する目的）
+        for relationship in relationships:
+            matching_relationship = next((mr for mr in self.memory_relationships_set if mr == relationship), None)
+            if matching_relationship:
+                matching_relationships.append(matching_relationship)
+
+        # 3. end_node, start_nodeのいずれかに合致するrelationを検索して追加（relationを渡す目的）
+        for node in nodes:
+            matching_relationship = next((mr for mr in self.memory_relationships_set
+                                          if (mr.start_node == node.name or mr.end_node == node.name)), None)
+            if matching_relationship is not None:
+                matching_relationships.append(matching_relationship)
+
+        # 4. end_node <-[type="CONTAIN"]- Messageのrelationを検索して追加（relationを渡す目的）
+        for node in nodes:
+            matching_relationship = next((mr for mr in self.memory_relationships_set
+                                          if (mr.end_node == node.name) and mr.type == "CONTAIN"), None)
+            if matching_relationship is not None:
+                matching_relationships.append(matching_relationship)
+
+        logger.info(f"matching_nodes: {matching_nodes}")
+        logger.info(f"matching_relationships: {matching_relationships}")
+        # いずれも一致しない場合は、Noneを返す。
+        if not matching_nodes and not matching_relationships:
+            return None
+        return Triplets(nodes=matching_nodes, relationships=matching_relationships)

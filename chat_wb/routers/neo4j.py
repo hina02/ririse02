@@ -1,11 +1,15 @@
 from fastapi import APIRouter
+from logging import getLogger
 from chat_wb.cache import (
     fetch_labels,
     fetch_node_names,
     fetch_relationships,
     fetch_label_and_relationship_type_sets,
 )
-from chat_wb.neo4j.neo4j import get_all_nodes, get_all_relationships, get_message_nodes, get_message_relationships
+from chat_wb.neo4j.neo4j import get_all_nodes, get_all_relationships, get_message_nodes, get_message_relationships, integrate_nodes
+from chat_wb.models import Node
+
+logger = getLogger(__name__)
 
 neo4j_router = APIRouter()
 
@@ -35,11 +39,13 @@ def get_node_names_api(label: str):
     nodes = fetch_node_names(label=label)
     return nodes
 
+
 @neo4j_router.get("/all_nodes", tags=["label"])
 def get_all_node_names_api():
     """すべてのノードのラベルと名前をリストとして取得する"""
     nodes = get_all_nodes()
     return nodes
+
 
 @neo4j_router.get("/all_relationships", tags=["label"])
 def get_all_relationships_api():
@@ -47,8 +53,6 @@ def get_all_relationships_api():
     relationships = get_all_relationships()
     return relationships
 
-from logging import getLogger
-logger = getLogger(__name__)
 
 @neo4j_router.get("/message_nodes/{title}", tags=["label"])
 def get_message_nodes_api(title: str):
@@ -56,16 +60,16 @@ def get_message_nodes_api(title: str):
     nodes = get_message_nodes(title)
     return nodes
 
+
 @neo4j_router.get("/message_relationships/{title}", tags=["label"])
 def get_message_relationships_api(title: str):
     """すべてのtitle,message起点のリレーションシップと名前をリストとして取得する"""
     relationships = get_message_relationships(title)
     return relationships
 
-from chat_wb.neo4j.neo4j import integrate_nodes
-from chat_wb.models.neo4j import Node, Relationships
+
 @neo4j_router.get("/integrate_nodes", tags=["label"])
-def integrate_nodes_api(label1:str, name1:str, label2:str, name2:str):
+def integrate_nodes_api(label1: str, name1: str, label2: str, name2: str):
     """すべてのノードのラベルと名前をリストとして取得する"""
     node1 = Node.create(label=label1, name=name1, properties=None)
     node2 = Node.create(label=label2, name=name2, properties=None)

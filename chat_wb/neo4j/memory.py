@@ -5,9 +5,8 @@ from datetime import datetime
 from logging import getLogger
 from functools import lru_cache
 from typing import Literal
-from chat_wb.models.wb import WebSocketInputData
+from chat_wb.models import WebSocketInputData, Triplets, Node
 from openai_api.common import get_embedding
-from chat_wb.models.neo4j import Triplets, Node
 
 # ロガー設定
 logger = getLogger(__name__)
@@ -161,29 +160,6 @@ def query_vector_with_filter(query: str, entity: list[Node], k: int = 20):
     return filtered_nodes
 
 
-def query_vector_with_filter(query: str, entity: list[Node], k: int = 20):
-    """entityとのマッチを用いて、messageのquery_vector結果をフィルタリングする。"""
-    nodes = query_vector(query, "Message", k=k)
-
-    # [nodes(node.user_input_entity.nodes)]に、[entityに含まれるnode.name]に合致するものがある場合、filtered_nodesに格納
-    filtered_nodes = []
-    entity_node_names = [node.name for node in entity]
-
-    for node in nodes:
-        # Message nodeから、作成時のuser_input_entityを取得
-        user_input_entity_json = node.get("user_input_entity")
-        if user_input_entity_json:
-            user_input_entity = json.loads(user_input_entity_json)
-            node_entities = user_input_entity.get("nodes", [])
-
-        # 一つでもentityに含まれるnode.nameがあれば、filtered_nodesに追加
-        for node_entity in node_entities:
-            if node_entity.get("name") in entity_node_names:
-                filtered_nodes.append(node)
-                break
-    return filtered_nodes
-
-
 async def create_and_update_title(title: str, new_title: str | None = None) -> int:
     """Titleノードを作成、更新する"""
     # title名でベクトル作成
@@ -208,6 +184,7 @@ async def create_and_update_title(title: str, new_title: str | None = None) -> i
             vector=pa_vector,
         )
         logger.info(f"Title Node created: {title}")
+        return True
 
 
 async def store_message(

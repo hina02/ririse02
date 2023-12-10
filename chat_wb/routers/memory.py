@@ -11,8 +11,6 @@ memory_router = APIRouter()
 logger = getLogger(__name__)
 
 
-
-
 @memory_router.get("/query_vector", tags=["memory"])
 def query_vector_api(query: str, label: str, k: int = 3):
     return query_vector(query, label, k)

@@ -3,7 +3,7 @@ import json
 from logging import getLogger
 import openai
 from openai import AsyncOpenAI
-from chat_wb.models.neo4j import Triplets
+from chat_wb.models import Triplets, Node, Relationships
 from chat_wb.main.prompt import (
     CODE_SUMMARIZER_PROMPT,
     DOCS_COMPRESSER_PROMPT,
@@ -20,7 +20,6 @@ from chat_wb.neo4j.neo4j import (
     create_update_relationship
 )
 from openai_api.models import ChatPrompt
-from chat_wb.models.neo4j import Node, Relationships
 from utils.common import atimer
 
 # ロガー設定

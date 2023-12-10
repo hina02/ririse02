@@ -10,9 +10,7 @@ from openai import AsyncOpenAI
 from openai_api.models import ChatPrompt
 from chat_wb.voice.text2voice import playVoicePeak
 from chat_wb.neo4j.triplet import TripletsConverter
-from chat_wb.models.neo4j import Triplets
-from chat_wb.models.wb import WebSocketInputData
-from chat_wb.models.wb import ShortMemory
+from chat_wb.models import Triplets, WebSocketInputData, ShortMemory
 
 logger = getLogger(__name__)
 
@@ -127,8 +125,8 @@ class StreamChatClient():
         self.temp_memory = []
         self.long_memory = None
         self.activated_memory = None
-        logger.info(f"client title: {self.title}")
-        logger.info(f"short_memory: {self.short_memory}")
+        logger.debug(f"client title: {self.title}")
+        logger.debug(f"short_memory: {self.short_memory.short_memory}")
 
     # テキストを終端記号で分割する関数
     def format_text(self, text):
@@ -176,8 +174,10 @@ class StreamChatClient():
         self.activated_memory = await self.short_memory.activate_memory(self.user_input_entity)
 
         # websocketにactivated_memoryを送信
-        message = {"type": "entity", "entity": self.activated_memory.model_dump_json() if self.activated_memory else None}
-        await websocket.send_text(json.dumps(message))
+        if self.activated_memory:
+            message = {"type": "activated_memory",
+                       "activated_memory": self.activated_memory.model_dump_json()}
+            await websocket.send_text(json.dumps(message))
 
         # Neo4jから、Tripletsに含まれるノードと関係を取得
         result = await converter.get_memory_from_triplet(triplets)
