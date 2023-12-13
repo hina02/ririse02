@@ -24,9 +24,7 @@ class Node(BaseModel):
     @classmethod
     def create(cls, label: str, name: str, properties: dict):
         """LLMで生成されたノードを Node オブジェクトに変換する"""
-        # neo4jでlabel,nameを空文字にしないため、空文字の場合はNoneを返す。
-        # if not label or not name:
-        #     return None
+        label = label.replace(" ", "_")  # Neo4j don't allow space in label
         name = remove_suffix(name)
         return cls(label=label, name=name, properties=properties)
 
@@ -56,6 +54,7 @@ class Relationships(BaseModel):
     @classmethod
     def create(cls, type: str, start_node: str, end_node: str, properties: dict, start_node_label: str | None, end_node_label: str | None):
         """LLMで生成された関係を Relationships オブジェクトに変換する"""
+        type = type.replace(" ", "_")  # Neo4j don't allow space in type
         start_node = remove_suffix(start_node)
         end_node = remove_suffix(end_node)
         if not type or not start_node or not end_node:
@@ -75,7 +74,7 @@ class Triplets(BaseModel):
     @classmethod
     def create(cls, triplets_data, user_name: str, ai_name: str):
         """LLMで生成されたTripletsをTripletsオブジェクトに変換する"""
-
+        logger.info(f"triplets_data: {triplets_data}")
         nodes = []
         if 'Nodes' in triplets_data:
             for node in triplets_data['Nodes']:
@@ -228,8 +227,8 @@ class ShortMemory(BaseModel):
             if matching_relationship is not None:
                 matching_relationships.append(matching_relationship)
 
-        logger.info(f"matching_nodes: {matching_nodes}")
-        logger.info(f"matching_relationships: {matching_relationships}")
+        logger.debug(f"matching_nodes: {matching_nodes}")
+        logger.debug(f"matching_relationships: {matching_relationships}")
         # いずれも一致しない場合は、Noneを返す。
         if not matching_nodes and not matching_relationships:
             return None

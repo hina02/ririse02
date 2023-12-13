@@ -92,9 +92,11 @@ output json format is {{"change": true or false, "changed_sentence": ""}}
 
 EXTRACT_TRIPLET_PROMPT = """
 output json format to neo4j without id. output format example is here.
+If there are no nodes or relationships in the text, return [].
 If len(Nodes) > 2, Relationship_types is required.
-{{Nodes: [{{"label", "name", "properties"}}],
-Relationships: [{{"start_node": "", "end_node": "", "type": "", "properties": {{}}}}]}}
+Please avoid using abstract or non-specific terms.
+{{Nodes: [{{"label": str, "name": str, "properties": dict}}],
+Relationships: [{{"start_node": str, "end_node": str, "type": str, "properties": dict}}]}}
 """
 
 # tripletを抽出し、grpheのtypeを判定するプロンプト

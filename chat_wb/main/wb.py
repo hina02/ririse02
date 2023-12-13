@@ -10,6 +10,7 @@ from openai import AsyncOpenAI
 from openai_api.models import ChatPrompt
 from chat_wb.voice.text2voice import playVoicePeak
 from chat_wb.neo4j.triplet import TripletsConverter
+from chat_wb.neo4j.neo4j import get_node, get_node_relationships_between
 from chat_wb.models import Triplets, WebSocketInputData, ShortMemory
 
 logger = getLogger(__name__)
@@ -31,10 +32,12 @@ async def get_voice(text: str, narrator: str = "Asumi Ririse"):
 stream_chat_clients = {}
 
 
-def get_stream_chat_client(input_data: WebSocketInputData):
+async def get_stream_chat_client(input_data: WebSocketInputData):
     title = input_data.title
     if title not in stream_chat_clients:
         stream_chat_clients[title] = StreamChatClient(input_data)
+        # 初期化時に、character_settingsの読み込みを行う。
+        await stream_chat_clients[title].init()
     else:
         stream_chat_clients[title].set_user_input(input_data.input_text)
     return stream_chat_clients[title]
@@ -55,15 +58,40 @@ class StreamChatClient():
         self.short_memory: ShortMemory = ShortMemory()  # チャットとlong_memoryの履歴、memoryを最大7個まで格納する
         self.activated_memory: Triplets | None = None   # short_memoryのうち、user_input_entityに関連するもの
 
+    async def init(self):
+        label = "Person"
+        AI, user, relationships = await asyncio.gather(
+            get_node(label, self.AI),
+            get_node(label, self.user),
+            get_node_relationships_between(label, label, self.user, self.AI)
+        )
+        nodes = [node for node in [AI[0], user[0]] if node is not None]
+        relationships = relationships if relationships is not None else []
+        self.character_settings = Triplets(nodes=nodes, relationships=relationships).model_dump_json()
+
     def set_user_input(self, user_input: str):
         self.user_input = user_input
 
     # 短い文章で出力を返す（これ複数回で1回の返答）
     async def streamchat(self, k: int, input_text: str | None = None, long_memory: Triplets | None = None, max_tokens: int = 240):
         # system_prompt
-        system_prompt = """Output is Japanese.
+        system_prompt = """Output is Japanese without character name.
                         Don't reveal hidden information.
                         """
+        # user, AIのノード、両者間のリレーションシップを取得してsystem_promptに設定する。（setからの除去等、short_memoryとの重複を検討する。（この情報を更新するタイミングがないので、重複しても良いかもしれない。)）
+        character_settings_prompt = self.character_settings
+
+        character_prompt = f"""
+        You are to simulate the game character that the young girl named {self.AI}, that have conversation with the player named {self.user}.
+        Output the line of {self.AI}.
+        If the relationship has "Scenario Flag" type, you must start the scenario by following the instructions in the properties.
+        {self.AI}:
+        ----------------------------------------
+        Character Settings:
+        {character_settings_prompt}
+        """
+
+        system_prompt += character_prompt
 
         # activated_memoryとlong_memoryの追加
         memory_info = ""

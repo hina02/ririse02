@@ -195,6 +195,7 @@ async def store_message(
     source = input_data.source
     title = input_data.title
     user_input = input_data.input_text
+    AI = input_data.AI
     former_node_id = input_data.former_node_id
     current_utc_datetime = datetime.utcnow()
     create_time = current_utc_datetime.isoformat() + "Z"
@@ -219,7 +220,7 @@ async def store_message(
         result = session.run(
             """CREATE (b:Message {create_time: $create_time, source: $source,
                              user_input: $user_input, user_input_entity: $user_input_entity,
-                             ai_response: $ai_response})
+                             AI: $AI, ai_response: $ai_response})
                              WITH b
                              CALL db.create.setNodeVectorProperty(b, 'embedding', $vector)
                              RETURN id(b) AS node_id
@@ -227,7 +228,8 @@ async def store_message(
             create_time=create_time,
             source=source,
             user_input=user_input,
-            user_input_entity=user_input_entity.model_dump_json(),
+            user_input_entity=user_input_entity.model_dump_json() if user_input_entity else None,
+            AI=AI,
             ai_response=ai_response,
             vector=vector,
         )
@@ -257,9 +259,9 @@ async def store_message(
         # 情報をretrieveしやすいように、create_time, propertiesを保存する。
         if user_input_entity is not None:
             for node in user_input_entity.nodes:
-                properties = node.properties
-                logger.info(f"properties: {properties}")
+                properties = node.properties if node.properties is not None else {}
                 properties["created_time"] = create_time
+                logger.info(f"properties: {properties}")
                 session.run(
                     f"""
                         MATCH (b) WHERE id(b) = $new_node_id

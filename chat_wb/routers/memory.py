@@ -33,13 +33,13 @@ async def get_memory_from_triplet_api(text: str):
     return await converter.get_memory_from_triplet(triplets)
 
 
-@memory_router.get("/store_memory_from_triplet", tags=["memory"])
+@memory_router.post("/store_memory_from_triplet", tags=["memory"])
 async def store_memory_from_triplet_api(text: str):
     converter = TripletsConverter()
     triplets = await converter.run_sequences(text)
     return converter.store_memory_from_triplet(triplets)
 
 
-@memory_router.get("/create_and_update_title", tags=["memory"])
+@memory_router.post("/create_and_update_title", tags=["memory"])
 async def create_and_update_title_api(title: str, new_title: str | None = None):
     return await create_and_update_title(title, new_title)

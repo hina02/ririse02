@@ -33,18 +33,21 @@ def create_update_node(node: Node):
         node_id = result.get("node_id") if result else None
 
         # 既存のノードが存在し、新規プロパティがある場合、プロパティを更新する。（キーが重複する場合は追加）
+        # プロパティはstrまたはlistのみをサポートする。（フロントから、JSONを介すため、文字列として要素が送られるため）
         if node_id:
             if properties:
-                for property_name, property_value in properties.items():
-                    update_query = f"""
-                    MATCH (n)
-                    WHERE id(n) = $node_id
-                    SET n.{property_name} = CASE
-                        WHEN n.{property_name} IS NULL THEN [$property_value]
-                        ELSE apoc.coll.toSet(n.{property_name} + [$property_value])
-                    END
-                    """
-                    session.run(update_query, node_id=node_id, property_value=property_value)   # idが複数の場合、このクエリは実行されず、スルーされる。
+                logger.info(f"properties: {properties}")
+                set_clause = ", ".join([
+                    f"n.{property_name} = CASE WHEN n.{property_name} IS NULL THEN ['{property_value}'] ELSE apoc.coll.toSet(n.{property_name} + ['{property_value}']) END"
+                    for property_name, property_value in properties.items()
+                ])
+                update_query = f"""
+                MATCH (n)
+                WHERE id(n) = $node_id
+                SET {set_clause}
+                """
+                session.run(update_query, node_id=node_id)
+                # idが複数の場合、このクエリは実行されず、スルーされる。
 
                 message = f"Node {{{label}:{name}}} already exists.\nProperty updated."
                 logger.info(message)
@@ -136,10 +139,14 @@ def delete_node(label: str = None, name: str = None):
             name=name,
         )
         deleted_count = result.single().get("deleted_count")
-        if deleted_count > 0:
-            return logger.info(message=f"Node {{{label}:{name}}} deleted.")
-        else:
-            return logger.info(message=f"Node {{{label}:{name}}} not found.")
+    if deleted_count > 0:
+        message = f"Node {{{label}:{name}}} deleted."
+        logger.info(message)
+        return {"status": True, "message": message}
+    else:
+        message = f"Node {{{label}:{name}}} not found."
+        logger.info(message)
+        return {"status": False, "message": message}
 
 
 # IDをもとにリレーションシップを削除する
@@ -372,13 +379,14 @@ async def get_node(label: str, name: str) -> list[Node] | None:
         return nodes if nodes else None
 
 
-# ノードからすべての双方向のリレーションとプロパティ、ノードを得る
+# ノードからすべての双方向のリレーションとプロパティ、ノードを得る（Message,Titleを除く）
 async def get_node_relationships(label: str, name: str) -> list[Relationships] | None:
     with driver.session() as session:
         result = session.run(
             f"""
             MATCH (a:{label}) WHERE $name IN a.name_variations OR a.name = $name OR a.user_input = $name
             MATCH (a)-[r]-(b)
+            WHERE NOT 'Message' IN labels(b) AND NOT 'Title' IN labels(b)
             RETURN type(r) as relationship_type, properties(r) as properties,
                 labels(startNode(r))[0] as start_node_label,
                 labels(endNode(r))[0] as end_node_label,
@@ -440,11 +448,14 @@ async def get_node_relationships_between(
 
 # ----------------------------------------------------------------
 # Name variation Integration
-def integrate_nodes(node1: Node, node2: Node):
+async def integrate_nodes(node1: Node, node2: Node):
     """ノード2つを選択して、名前、プロパティ、リレーションシップを統合する。確実に確認してから削除すべきなので、削除は別に行う。"""
+    message = f"Node {{{node1.label}:{node1.name}}} and {{{node2.label}:{node2.name}}} integrated."
+    logger.info(message)
     integrate_node_names(node1, node2)
     integrate_node_properties(node1, node2)
     integrate_relationships(node1, node2)
+    return {"status": True, "message": message}
 
 
 # Use neo4j apoc plugin (neo4j aura db pre-installed)

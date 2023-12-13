@@ -21,7 +21,7 @@ async def websocket_endpoint(websocket: WebSocket):
     title = input_data.title
 
     # StreamChatClientを取得（input_dataを渡し、ここで、user_inputの更新も行う）
-    client = get_stream_chat_client(input_data)
+    client = await get_stream_chat_client(input_data)
     messages = get_messages(title)
     former_node_id = messages[-1].get("id") if messages else None   # 最新のメッセージのidを取得
     input_data.former_node_id = former_node_id
