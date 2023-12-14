@@ -2,6 +2,7 @@
 from logging import getLogger
 from chat_wb.neo4j.memory import query_vector, get_messages, get_titles, create_and_update_title
 from chat_wb.neo4j.triplet import TripletsConverter
+from chat_wb.models import Node
 from fastapi import APIRouter
 
 

@@ -171,11 +171,11 @@ class ShortMemory(BaseModel):
     relationships_set: set[Relationships] = set()
     triplets: Triplets | None = None
 
-    def memory_turn_over(self, user_input: str, ai_response: str, long_memory: Triplets | None = None):
+    def memory_turn_over(self, user_input: str, ai_response: str, retrieved_memory: Triplets | None = None):
         temp_memory = TempMemory(
             user_input=user_input,
             ai_response=ai_response,
-            triplets=long_memory,
+            triplets=retrieved_memory,
         )
         # short_memoryに追加
         self.short_memory.append(temp_memory)

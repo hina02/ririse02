@@ -5,7 +5,7 @@ from datetime import datetime
 from logging import getLogger
 from functools import lru_cache
 from typing import Literal
-from chat_wb.models import WebSocketInputData, Triplets, Node
+from chat_wb.models import WebSocketInputData, Triplets, Node, ShortMemory
 from openai_api.common import get_embedding
 
 # ロガー設定
@@ -101,7 +101,7 @@ def get_titles() -> list[str]:
     return nodes
 
 
-def query_vector(query: str, label: Literal['Title', 'Message'], k: int = 3):
+def query_vector(query: str, label: Literal['Title', 'Message'], k: int = 3, threshold: float = 0.9):
     """インデックスを作成したラベル(Title, Message)から、ベクトルを検索する"""
     vector = get_embedding(query)
 
@@ -110,10 +110,12 @@ def query_vector(query: str, label: Literal['Title', 'Message'], k: int = 3):
             """
             CALL db.index.vector.queryNodes($label, $k, $vector)
             YIELD node, score
+            WHERE score > $threshold
             RETURN node AS properties, score""",
             label=label,
             k=k,
             vector=vector,
+            threshold=threshold,
         )
 
         nodes = []
@@ -131,27 +133,34 @@ def query_vector(query: str, label: Literal['Title', 'Message'], k: int = 3):
     return nodes
 
 
-def query_vector_with_filter(query: str, entity: list[Node], k: int = 20):
-    """entityとのマッチを用いて、messageのquery_vector結果をフィルタリングする。"""
-    nodes = query_vector(query, "Message", k=k)
+def query_messages(user_input: str, k: int = 3):
+    """user_inputを入れて、(user_input => user_input, ai_responseのセットを想定)
+        （chat historyはノイズになるので追加しない）
+        近しい過去のmessageのuser_input_entityを取り出す。
+        取り出したentityは、関連するnode、relationshipsを得るため、get_memory_from_tripletに渡す。"""
+    # vector search messages （前後のMessageの取得も検討）
+    messages = query_vector(user_input, label="Message", k=k)
 
-    # [nodes(node.user_input_entity.nodes)]に、[entityに含まれるnode.name]に合致するものがある場合、filtered_nodesに格納
-    filtered_nodes = []
-    entity_node_names = [node.name for node in entity]
+    # user_input_entityを取り出してtripletsにまとめる。
+    nodes_set = set()
+    relationships_set = set()
 
-    for node in nodes:
-        # Message nodeから、作成時のuser_input_entityを取得
-        user_input_entity_json = node.get("user_input_entity")
-        if user_input_entity_json:
-            user_input_entity = json.loads(user_input_entity_json)
-            node_entities = user_input_entity.get("nodes", [])
+    for message in messages:
+        logger.info(f"message: {message}")
+        user_input_entity = Triplets.model_validate_json(message["user_input_entity"]) if message["user_input_entity"] else None
+        if user_input_entity is not None:
+            nodes_set.update(user_input_entity.nodes)
+            relationships_set.update(user_input_entity.relationships)
+    user_input_entities = Triplets(nodes=list(nodes_set), relationships=list(relationships_set))
 
-        # 一つでもentityに含まれるnode.nameがあれば、filtered_nodesに追加
-        for node_entity in node_entities:
-            if node_entity.get("name") in entity_node_names:
-                filtered_nodes.append(node)
-                break
-    return filtered_nodes
+    # convert messages to [Node]
+    message_nodes = []
+    for message in messages:
+        message.pop("user_input_entity", None)
+        name = message.pop("create_time", "unknown date")   # LLMが時系列を把握しやすいように、日時情報をnameに割り当て。
+        message_nodes.append(Node(label="Message", name=name, properties=message))
+
+    return message_nodes, user_input_entities
 
 
 async def create_and_update_title(title: str, new_title: str | None = None) -> int:
@@ -210,7 +219,8 @@ async def store_message(
         ).single()["title_id"]
 
         # メッセージノードを作成
-        vector = get_embedding(ai_response)  # どれを登録するべきか悩ましい
+        embed_message = f"{source}: {user_input}\n {AI}: {ai_response}"
+        vector = get_embedding(embed_message)  # user_input, ai_responseのセットを保存し、user_inputでqueryする想定
         result = session.run(
             """CREATE (b:Message {create_time: $create_time, source: $source,
                              user_input: $user_input, user_input_entity: $user_input_entity,

@@ -17,7 +17,7 @@ from chat_wb.neo4j.neo4j import (
     get_node_relationships_between,
     get_node,
     create_update_node,
-    create_update_relationship
+    create_update_relationship,
 )
 from openai_api.models import ChatPrompt
 from utils.common import atimer
@@ -223,7 +223,7 @@ class TripletsConverter():
         return triplets
 
     @staticmethod
-    async def get_memory_from_triplet(triplets: Triplets) -> Triplets:
+    async def get_memory_from_triplet(triplets: Triplets, user_input: str) -> Triplets:
         """user_input_entityに基づいて、Neo4jへのクエリレスポンスを取得 1回で1秒程度"""
         tasks = []
         # nodeの取得
