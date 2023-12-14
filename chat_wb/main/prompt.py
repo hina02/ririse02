@@ -76,15 +76,19 @@ RELATION_SETS = None  # fetch_label_and_relationship_type_sets()
 # Iの変換は行う。Youの変換は行わない。このプロンプトだけでは不十分なので、後でI,Youの変換を直接行う。
 COREFERENCE_RESOLUTION_PROMPT = """
 Given a sentence, your task is to identify and replace pronouns in each sentence with the proper noun they refer to in the original context if pronouns in a sentence.
+Additionally, identify and fill in missing subjects and objects in a sentence based on the provided context.
 
-Use coreference resolution to make these replacements accurate and contextually correct.
-The goal is to maintain the original meaning of a sentence.
-For example, if the input sentence is 'That movie was very fantastic!' and reference is ['Did you watch RRR?', 'That movie was very fantastic!'], the response should be 'RRR was very fantastic!'.
+Use coreference resolution to make these replacements accurate and contextually correct, and fill missing subjects and objects.
+The goal is to maintain the original meaning of a sentence and make explainable by itself.
+For example, 
+if the input sentence is 'That movie was very fantastic!' and chat history is ['Did you watch RRR?', 'That movie was very fantastic!'], the response should be 'RRR was very fantastic!'.
+if the input sentence is 'Where is the cafe?' and chat history is ['Mary usually go to cafe'], the response shoud be 'Where is the cafe that Mary usually go to?'.
+
 If the sentence expressed with first person pronouns in any language (e.g. 'I', 'my', 'me' etc.), use "{user}".
 If the sentence expressed with second person pronouns in any language (e.g. 'you', 'your', etc.), keep it.
 
 The output should be changed sentence in which any pronouns have been accurately replaced with their respective referents from the context.
-If a sentence does not contain any pronouns, changed_sentence will be "".
+If a sentence does not contain any pronouns, missing subjects or objects, changed_sentence will be "".
 
 output json format is {{"change": true or false, "changed_sentence": ""}}
 """

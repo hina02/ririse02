@@ -12,12 +12,6 @@ from openai_api.common import get_embedding
 logger = getLogger(__name__)
 
 
-# Neo4jに保存
-# ノードを作成する
-# 親ノード(Title)からのリレーション(CONTAIN)を作成する
-# 前のノード(Message)からのリレーション(FOLLOW)を作成する
-# 前のノード(Message)へのリレーション(PRECEDES)を作成する
-
 # ドライバの初期化
 uri = os.environ["NEO4J_URI"]
 username = "neo4j"
@@ -276,62 +270,3 @@ async def store_message(
                 logger.info(f"Message Node Relation with Entity created: {node}")
 
     return new_node_id
-
-
-# chatGPTのjsonファイルから、Neo4jに保存するデータを抽出する 未アップデート
-def data_from_chatGPT(file_path: str):
-    with open(file_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    organized_data = []
-
-    for item in data:
-        single_data = {}
-        single_data["title"] = item.get("title", None)
-
-        conversations = []
-        conversation_set = {}
-        for key, value in item.get("mapping", {}).items():
-            message = value.get("message", {})
-            author_role = None
-            if message and message.get("author"):
-                author_role = message.get("author").get("role", None)
-
-            if author_role == "user":
-                conversation_set["user_input"] = message.get("content", {}).get(
-                    "parts", []
-                )[0]
-            elif author_role == "assistant":
-                conversation_set["ai_response"] = message.get("content", {}).get(
-                    "parts", []
-                )[0]
-                conversation_set["create_time"] = message.get("create_time", None)
-
-            if "user_input" in conversation_set and "ai_response" in conversation_set:
-                conversations.append(conversation_set.copy())
-                conversation_set.clear()
-
-        single_data["conversations"] = conversations
-        organized_data.append(single_data)
-
-    # 抽出したデータをJSON形式で保存
-    with open("organized_data.json", "w") as f:
-        json.dump(organized_data, f, ensure_ascii=False, indent=4)
-
-    return organized_data
-
-
-def store_data_from_chatGPT(file_path: str):
-    organized_data = data_from_chatGPT(file_path)
-
-    for item in organized_data:
-        title = item["title"]
-
-        former_node_id = None
-        for conversation in item:
-            user_input = conversation["user_input"]
-            ai_response = conversation["ai_response"]
-            create_time = conversation["create_time"]
-            former_node_id = store_message(
-                title, user_input, ai_response, former_node_id, create_time
-            )

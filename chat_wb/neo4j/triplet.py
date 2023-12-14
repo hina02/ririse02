@@ -3,7 +3,7 @@ import json
 from logging import getLogger
 import openai
 from openai import AsyncOpenAI
-from chat_wb.models import Triplets, Node, Relationships
+from chat_wb.models import Triplets, Node, Relationships, TempMemory
 from chat_wb.main.prompt import (
     CODE_SUMMARIZER_PROMPT,
     DOCS_COMPRESSER_PROMPT,
@@ -137,7 +137,7 @@ class TripletsConverter():
         logger.info(result)
         return result
 
-    @atimer
+
     async def coference_resolution(self, text: str):
         """Output format is {"change": true or false, "changed_sentence": ""}"""
         # prompt
@@ -146,6 +146,7 @@ class TripletsConverter():
         messages = ChatPrompt(
             system_message=system_prompt,
             user_message=user_prompt,
+            short_memory=self.short_memory if self.short_memory else None,  # 会話履歴を利用して、補正強化。
         ).create_messages()
 
         # response生成
@@ -157,14 +158,17 @@ class TripletsConverter():
         )
         # 修正がない場合は元のテキストを返す。
         response_json = response.choices[0].message.content
-        response = json.loads(response_json)
-        logger.info(response)
-        if response.get("change"):
-            return response.get("changed_sentence")
-        else:
+        try:
+            response = json.loads(response_json)
+            logger.info(response)
+            if response.get("change"):
+                return response.get("changed_sentence")
+            else:
+                return text
+        except Exception as e:
+            logger.error(f"Invalid response for json.loads {e}")
             return text
 
-    @atimer
     async def convert_to_triplets(self, text: str):
         """example output "Mary is nurse. Tom married Mary. "
         {
@@ -196,7 +200,10 @@ class TripletsConverter():
         return response.choices[0].message.content
 
     @atimer
-    async def run_sequences(self, text: str) -> Triplets | None:        
+    async def run_sequences(self, text: str, short_memory: list[TempMemory] | None = None) -> Triplets | None:        
+        # for conference_resolution
+        self.short_memory = short_memory
+
         # convert to triplets
         if self.user_input_type == "code":
             response_json = await self.summerize_code(text=text)
@@ -216,7 +223,6 @@ class TripletsConverter():
         return triplets
 
     @staticmethod
-    @atimer
     async def get_memory_from_triplet(triplets: Triplets) -> Triplets:
         """user_input_entityに基づいて、Neo4jへのクエリレスポンスを取得 1回で1秒程度"""
         tasks = []

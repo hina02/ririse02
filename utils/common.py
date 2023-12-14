@@ -6,10 +6,10 @@ logger = getLogger(__name__)
 
 def atimer(func):
     async def wrapper(*args, **kwargs):
-        start = time.time()
+        start_time = time.time()
         result = await func(*args, **kwargs)
-        end = time.time()
-        logger.info(f"Time: {end - start} seconds")
+        end_time = time.time()
+        logger.info(f"{func.__name__} Time: {round(end_time - start_time, 5)} seconds")
         return result
 
     return wrapper
@@ -21,7 +21,7 @@ def timer(func):
         result = func(*args, **kwargs)
         end_time = time.time()
         logger.info(
-            f"Function {func.__name__} took {round(end_time - start_time, 4)} seconds to run."
+            f"{func.__name__} Time: {round(end_time - start_time, 5)} seconds"
         )
         return result
 

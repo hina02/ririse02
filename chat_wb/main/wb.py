@@ -97,7 +97,7 @@ class StreamChatClient():
         memory_info = ""
         if self.activated_memory:
             memory_info += self.activated_memory.model_dump_json()
-        elif long_memory:
+        if long_memory:
             self.long_memory = long_memory
             memory_info += long_memory.model_dump_json()
 
@@ -133,7 +133,7 @@ class StreamChatClient():
         response = await self.client.chat.completions.create(
             model="gpt-4-1106-preview",
             messages=messages,
-            max_tokens=max_tokens,  # 240をベースにする。初回のみ応答速度を上げるために、80で渡す。
+            max_tokens=max_tokens,  # 240をベースにする。初回のみ応答速度を上げるために、120で渡す。
             temperature=0.7,
             frequency_penalty=0.3,  # 繰り返しを抑制するために必須。
         )
@@ -191,7 +191,7 @@ class StreamChatClient():
         # triage text
         self.user_input_type = await converter.triage_text(self.user_input)
         # convert to triplets
-        triplets = await converter.run_sequences(self.user_input)
+        triplets = await converter.run_sequences(self.user_input, self.short_memory.short_memory)
         if triplets is None:
             return None  # 出力なしの場合は、Noneを返す。
 
@@ -220,30 +220,33 @@ class StreamChatClient():
 
     # テキスト生成から音声合成、再生までを統括する関数
     async def wb_generate_audio(
-        self, websocket: WebSocket, k: int = 1
+        self, websocket: WebSocket, k: int = 2
     ):
         # レスポンス作成前に、user_inputを音声合成して送信
         await _get_voice(self.user_input, websocket, narrator="Asumi Shuo")
 
         # short_memoryがある場合、activated_memoryを待機する。
+        logger.info("waiting for short_memory")
         if self.short_memory.short_memory:
-            for _ in range(50):  # 0.1秒 * 50回 = 5秒
+            for _ in range(10):  # 1秒 * 10回 = 10秒
                 if self.activated_memory is not None:
                     break
-                await asyncio.sleep(0.1)
+                logger.info(f"waiting for activated_memory: {self.activated_memory}")
+                await asyncio.sleep(1.0)
         # short_memoryがない場合、それが質問文なら、long_memoryを待機する。
         else:
             if self.user_input_type == "question":
-                for _ in range(50):  # 0.1秒 * 50回 = 5秒
+                for _ in range(10):  # 1秒 * 10回 = 10秒
                     if self.long_memory is not None:
                         break
-                    await asyncio.sleep(0.1)
+                    await asyncio.sleep(1.0)
 
         # historyと同じ内容かどうかを調べて、同じなら生成しないようにできるかもしれない。（function callingか）
         code_block = []
         inside_code_block = False
 
         for i in range(k):
+            logger.info(f"i: {i}")
             max_tokens = 80 if i == 0 else 240  # 初回応答速度を上げるために、80で渡す。
             input_text = self.user_input if i == 0 else None  # 初回のみ受け取ったテキストを渡す。
             response = await self.streamchat(

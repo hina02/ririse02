@@ -126,8 +126,8 @@ def remove_suffix(name: str) -> str:
         "組長", "会長", "社長", "副社長", "部長", "課長", "係長", "監督", "選手",
         "", "博士", "教授", "マネージャー", "スタッフ", "メンバー", "オーナー", "リーダー",
         "ディレクター", "オフィサー", "一等兵", "上等兵", "伍長", "軍曹", "曹長", "少尉", "中尉",
-        "大尉", "少佐", "中佐", "大佐", "准将", "少将", "中将", "大将", "元帥", "大元帥",
-        "海兵", "上級海兵", "提督",
+        "大尉", "少佐", "中佐", "大佐", "准将", "少将", "中将", "大将", "元帥", "大元帥", "将軍"
+        "海兵", "上級海兵", "提督", "指令官", "司令官", "大統領", "総統", "皇帝", "王", "女王",
     ]
     family_prefixes = ["姉", "兄", "じ", "ば", "じい", "ばあ", "母", "父"]
     suffixes = ["さん", "ちゃん", "さま", "様", "殿", "どの", "氏", "上"]
@@ -135,7 +135,9 @@ def remove_suffix(name: str) -> str:
     family_suffixes_o = ["お" + fs for fs in family_suffixes]
 
     all_suffixes = (
-        ["さん", "くん", "君", "ちゃん", "さま", "様"]
+        [
+            "さん", "くん", "君", "ちゃん", "さま", "様",
+        ]
         + jk_suffixes
         + otaku_suffixes
         + role_suffixes
@@ -191,6 +193,8 @@ class ShortMemory(BaseModel):
     # 入力されたuser_inputのentityに関連する情報を取得する。
     # 優先順位（1. start_node, end_nodeの一致、2. node.nameの一致、3. relationの片方のnodeの一致）
     # Background information from your memory:として、system_promptに追加するのが適当。
+    from utils.common import atimer
+    @atimer
     async def activate_memory(self, user_input_entity: Triplets):
         # user_input_entityを取得
         nodes = user_input_entity.nodes if user_input_entity.nodes else []
@@ -199,6 +203,12 @@ class ShortMemory(BaseModel):
         # setと一致するnodes, relationshipsを取得
         matching_nodes = []
         matching_relationships = []
+
+        logger.info(f"memory_nodes_set: {self.memory_nodes_set}")
+        logger.info(f"memory_relationships_set: {self.memory_relationships_set}")
+        logger.info(f"nodes: {nodes}")
+        logger.info(f"relationships: {relationships}")
+
 
         # 1. Node(label, name)が一致するものを取得（propertiesを取得する目的）
         for node in nodes:
