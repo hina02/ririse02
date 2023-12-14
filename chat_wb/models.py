@@ -166,9 +166,10 @@ class TempMemory(BaseModel):
 
 class ShortMemory(BaseModel):
     short_memory: list[TempMemory] = []
-    memory_limit: int = 7
-    memory_nodes_set: set[Node] = set()
-    memory_relationships_set: set[Relationships] = set()
+    limit: int = 7
+    nodes_set: set[Node] = set()
+    relationships_set: set[Relationships] = set()
+    triplets: Triplets | None = None
 
     def memory_turn_over(self, user_input: str, ai_response: str, long_memory: Triplets | None = None):
         temp_memory = TempMemory(
@@ -179,67 +180,14 @@ class ShortMemory(BaseModel):
         # short_memoryに追加
         self.short_memory.append(temp_memory)
 
-        # short_memoryがmemory_limit(default = 7)個を超えたら、古いものから削除
-        while len(self.short_memory) > self.memory_limit:
+        # short_memoryがlimit(default = 7)個を超えたら、古いものから削除
+        while len(self.short_memory) > self.limit:
             self.short_memory.pop(0)
 
         # セットに変換（重複を削除）
         for temp_memory in self.short_memory:
             if temp_memory.triplets:
-                self.memory_nodes_set.update(temp_memory.triplets.nodes)
-                self.memory_relationships_set.update(temp_memory.triplets.relationships)
-
-
-    # 入力されたuser_inputのentityに関連する情報を取得する。
-    # 優先順位（1. start_node, end_nodeの一致、2. node.nameの一致、3. relationの片方のnodeの一致）
-    # Background information from your memory:として、system_promptに追加するのが適当。
-    from utils.common import atimer
-    @atimer
-    async def activate_memory(self, user_input_entity: Triplets):
-        # user_input_entityを取得
-        nodes = user_input_entity.nodes if user_input_entity.nodes else []
-        relationships = user_input_entity.relationships if user_input_entity.relationships else []
-
-        # setと一致するnodes, relationshipsを取得
-        matching_nodes = []
-        matching_relationships = []
-
-        logger.info(f"memory_nodes_set: {self.memory_nodes_set}")
-        logger.info(f"memory_relationships_set: {self.memory_relationships_set}")
-        logger.info(f"nodes: {nodes}")
-        logger.info(f"relationships: {relationships}")
-
-
-        # 1. Node(label, name)が一致するものを取得（propertiesを取得する目的）
-        for node in nodes:
-            # memory_nodes_set から一致するノードを検索
-            matching_node = next((mn for mn in self.memory_nodes_set if mn == node), None)
-            if matching_node:
-                matching_nodes.append(matching_node)
-
-        # 2. Relationship(start_node, end_node)が一致するものを取得（propertiesを取得する目的）
-        for relationship in relationships:
-            matching_relationship = next((mr for mr in self.memory_relationships_set if mr == relationship), None)
-            if matching_relationship:
-                matching_relationships.append(matching_relationship)
-
-        # 3. end_node, start_nodeのいずれかに合致するrelationを検索して追加（relationを渡す目的）
-        for node in nodes:
-            matching_relationship = next((mr for mr in self.memory_relationships_set
-                                          if (mr.start_node == node.name or mr.end_node == node.name)), None)
-            if matching_relationship is not None:
-                matching_relationships.append(matching_relationship)
-
-        # 4. end_node <-[type="CONTAIN"]- Messageのrelationを検索して追加（relationを渡す目的）
-        for node in nodes:
-            matching_relationship = next((mr for mr in self.memory_relationships_set
-                                          if (mr.end_node == node.name) and mr.type == "CONTAIN"), None)
-            if matching_relationship is not None:
-                matching_relationships.append(matching_relationship)
-
-        logger.debug(f"matching_nodes: {matching_nodes}")
-        logger.debug(f"matching_relationships: {matching_relationships}")
-        # いずれも一致しない場合は、Noneを返す。
-        if not matching_nodes and not matching_relationships:
-            return None
-        return Triplets(nodes=matching_nodes, relationships=matching_relationships)
+                self.nodes_set.update(temp_memory.triplets.nodes)
+                self.relationships_set.update(temp_memory.triplets.relationships)
+        # Tripletsに変換
+        self.triplets = Triplets(nodes=list(self.nodes_set), relationships=list(self.relationships_set))

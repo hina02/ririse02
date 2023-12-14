@@ -56,7 +56,6 @@ class StreamChatClient():
         self.temp_memory: list[str] = []   # ai_responseの一時保存
         self.long_memory: Triplets | None = None  # neo4jから取得した情報の一時保存
         self.short_memory: ShortMemory = ShortMemory()  # チャットとlong_memoryの履歴、memoryを最大7個まで格納する
-        self.activated_memory: Triplets | None = None   # short_memoryのうち、user_input_entityに関連するもの
 
     async def init(self):
         label = "Person"
@@ -93,10 +92,9 @@ class StreamChatClient():
 
         system_prompt += character_prompt
 
-        # activated_memoryとlong_memoryの追加
         memory_info = ""
-        if self.activated_memory:
-            memory_info += self.activated_memory.model_dump_json()
+        if self.short_memory.triplets:
+            memory_info += self.short_memory.triplets.model_dump_json()
         if long_memory:
             self.long_memory = long_memory
             memory_info += long_memory.model_dump_json()
@@ -148,11 +146,10 @@ class StreamChatClient():
             long_memory=self.long_memory
         )
 
-        # user_input_entity、temp_memory、long_memory、activated_memoryをリセット
+        # user_input_entity、temp_memory、long_memoryをリセット
         self.user_input_entity = None
         self.temp_memory = []
         self.long_memory = None
-        self.activated_memory = None
         logger.debug(f"client title: {self.title}")
         logger.debug(f"short_memory: {self.short_memory.short_memory}")
 
@@ -198,15 +195,6 @@ class StreamChatClient():
         # store_messageに渡すため、selfに格納。
         self.user_input_entity = triplets
 
-        # short_memoryからの関連情報の選択
-        self.activated_memory = await self.short_memory.activate_memory(self.user_input_entity)
-
-        # websocketにactivated_memoryを送信
-        if self.activated_memory:
-            message = {"type": "activated_memory",
-                       "activated_memory": self.activated_memory.model_dump_json()}
-            await websocket.send_text(json.dumps(message))
-
         # Neo4jから、Tripletsに含まれるノードと関係を取得
         result = await converter.get_memory_from_triplet(triplets)
         if result is None:
@@ -225,21 +213,11 @@ class StreamChatClient():
         # レスポンス作成前に、user_inputを音声合成して送信
         await _get_voice(self.user_input, websocket, narrator="Asumi Shuo")
 
-        # short_memoryがある場合、activated_memoryを待機する。
-        logger.info("waiting for short_memory")
-        if self.short_memory.short_memory:
+        if self.short_memory.triplets is None and self.user_input_type == "question":
             for _ in range(10):  # 1秒 * 10回 = 10秒
-                if self.activated_memory is not None:
+                if self.long_memory is not None:
                     break
-                logger.info(f"waiting for activated_memory: {self.activated_memory}")
                 await asyncio.sleep(1.0)
-        # short_memoryがない場合、それが質問文なら、long_memoryを待機する。
-        else:
-            if self.user_input_type == "question":
-                for _ in range(10):  # 1秒 * 10回 = 10秒
-                    if self.long_memory is not None:
-                        break
-                    await asyncio.sleep(1.0)
 
         # historyと同じ内容かどうかを調べて、同じなら生成しないようにできるかもしれない。（function callingか）
         code_block = []

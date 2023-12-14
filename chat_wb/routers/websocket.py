@@ -42,8 +42,8 @@ async def websocket_endpoint(websocket: WebSocket):
     client.close_chat()
 
     # websocketにshort_memoryを付加して、closeメッセージを送信する
-    short_memory = Triplets(nodes=list(client.short_memory.memory_nodes_set),
-                            relationships=list(client.short_memory.memory_relationships_set))
+    short_memory = Triplets(nodes=list(client.short_memory.nodes_set),
+                            relationships=list(client.short_memory.relationships_set))
     message = {"type": "close",
                "node_id": new_node_id,
                "short_memory": short_memory.model_dump_json()}
