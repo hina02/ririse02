@@ -406,7 +406,7 @@ async def get_node_relationships(label: str, name: str, depth: int = 1) -> list[
                 end_node_label=record["end_node_label"],
                 end_node=record["end_node_name"],
             ))
-        logger.info(f"relationships: {relationships}")
+        logger.debug(f"relationships: {relationships}")
     return relationships if relationships else None
 
 

@@ -1,4 +1,5 @@
 import re
+import json
 from logging import getLogger
 from pydantic import BaseModel
 
@@ -27,6 +28,12 @@ class Node(BaseModel):
         label = label.replace(" ", "_")  # Neo4j don't allow space in label
         name = remove_suffix(name)
         return cls(label=label, name=name, properties=properties)
+
+    def to_cypher(self) -> str:
+        """Cypherクエリを生成する"""
+        prop_str = ', '.join([f"{key}: '{value}'" for key, value in self.properties.items()])
+        prop_str = f"{{ {prop_str} }}" if prop_str else ""
+        return f"({self.name}:{self.label} {prop_str})"
 
 
 class Relationships(BaseModel):
@@ -61,6 +68,16 @@ class Relationships(BaseModel):
             return None
         return cls(type=type, start_node=start_node, end_node=end_node, properties=properties,
                    start_node_label=start_node_label, end_node_label=end_node_label)
+
+    def to_cypher(self) -> str:
+        """Cypherクエリを生成する"""
+        start_label = f":{self.start_node_label}" if self.start_node_label else ""
+        end_label = f":{self.end_node_label}" if self.end_node_label else ""
+        props = ""
+        if self.properties:
+            props = ', '.join([f"{key}: '{value}'" for key, value in self.properties.items()])
+            props = f"{{{props}}}"
+        return f"({self.start_node}{start_label} {{name: '{self.start_node}'}})-[r:{self.type} {props}]->({self.end_node}{end_label} {{name: '{self.end_node}'}})"
 
 
 FIRST_PERSON_PRONOUNS = ["私", "i", "user", "me"]
@@ -109,6 +126,17 @@ class Triplets(BaseModel):
             relationships = [relationship for relationship in relationships if relationship is not None]
 
         return cls(nodes=nodes, relationships=relationships)
+
+    def to_cypher_json(self) -> str:
+        """Cypherクエリを生成する"""
+        cypher_nodes = [node.to_cypher() for node in self.nodes]
+        cypher_relationships = [rel.to_cypher() for rel in self.relationships]
+
+        cypher_data = {
+            "nodes": cypher_nodes,
+            "relationships": cypher_relationships
+        }
+        return json.dumps(cypher_data, ensure_ascii=False)
 
 
 # Use in Triplet

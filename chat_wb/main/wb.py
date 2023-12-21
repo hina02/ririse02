@@ -83,7 +83,7 @@ class StreamChatClient():
         character_settings_prompt = self.character_settings
 
         character_prompt = f"""
-        You are to simulate the game character that the young girl named {self.AI}, that have conversation with the player named {self.user}.
+        You are to simulate the game character that the young girl named {self.AI}, that have conversation with the player(user) named {self.user}.
         Output the line of {self.AI}.
         If the relationship has "Scenario Flag" type, you must start the scenario by following the instructions in the properties.
         ----------------------------------------
@@ -95,9 +95,9 @@ class StreamChatClient():
 
         memory_info = ""
         if self.short_memory.triplets:
-            memory_info += self.short_memory.triplets.model_dump_json()
+            memory_info += self.short_memory.triplets.to_cypher_json()
         if self.message_retrieved_memory:
-            memory_info += self.message_retrieved_memory.model_dump_json()
+            memory_info += self.message_retrieved_memory.to_cypher_json()
 
         # memory_infoが存在すればそれを、存在しなければ'Searching'をsystem_promptに追加
         system_prompt += f"""

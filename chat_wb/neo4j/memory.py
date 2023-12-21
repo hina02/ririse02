@@ -123,7 +123,7 @@ def query_vector(query: str, label: Literal['Title', 'Message'], k: int = 3, thr
             if "embedding" in properties:
                 del properties["embedding"]
 
-            score = record["score"]
+            score = round(record["score"], 3)
             properties["score"] = score
             nodes.append(properties)
 
@@ -168,7 +168,7 @@ async def create_and_update_title(title: str, new_title: str | None = None):
     pa_vector = get_embedding(new_title) if new_title else get_embedding(title)
     # 現在のUTC日時を取得し、ISO 8601形式の文字列に変換
     current_utc_datetime = datetime.utcnow()
-    current_time = current_utc_datetime.isoformat() + "Z"
+    current_time = current_utc_datetime.strftime("%Y-%m-%dT%H:%M:%SZ")
 
     with driver.session() as session:
         session.run(
@@ -200,7 +200,7 @@ async def store_message(
     AI = input_data.AI
     former_node_id = input_data.former_node_id
     current_utc_datetime = datetime.utcnow()
-    create_time = current_utc_datetime.isoformat() + "Z"
+    create_time = current_utc_datetime.strftime("%Y-%m-%dT%H:%M:%SZ")
     update_time = create_time
 
     with driver.session() as session:

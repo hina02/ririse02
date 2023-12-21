@@ -163,7 +163,7 @@ class TripletsConverter():
         # nodeの取得
         for node in triplets.nodes:
             tasks.append(get_node(node.label, node.name))
-            # nodeが持つすべてのrealtion(Messageを除く)を取得（さらにdepthで深く探索）
+            # nodeが持つすべてのrealtion(Messageを除く)を取得（depth指定でさらに深く探索）
             tasks.append(get_node_relationships(node.label, node.name, depth))
 
         if triplets.relationships:
