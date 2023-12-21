@@ -38,6 +38,7 @@ RELATION_SETS = None  # fetch_label_and_relationship_type_sets()
 
 # Iの変換は行う。Youの変換は行わない。このプロンプトだけでは不十分なので、後でI,Youの変換を直接行う。
 # conference resolution, ellipsis resolution, contextual completionを用い、代名詞の補正等を行う。
+# [OPTIMIZE] relatiohsips.properties key example
 EXTRACT_TRIPLET_PROMPT = """
 Output json format to neo4j without id.
 

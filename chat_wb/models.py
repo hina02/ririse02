@@ -91,7 +91,7 @@ class Triplets(BaseModel):
     @classmethod
     def create(cls, triplets_data, user_name: str, ai_name: str):
         """LLMで生成されたTripletsをTripletsオブジェクトに変換する"""
-        logger.info(f"triplets_data: {triplets_data}")
+        logger.info(f"triplets_data: {triplets_data}")  # [OPTIMIZE] user_name, ai_nameの置換は、プロンプトの向上で不要となった可能性あり。出力が安定するようなら省く。
         nodes = []
         if 'Nodes' in triplets_data:
             for node in triplets_data['Nodes']:

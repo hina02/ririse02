@@ -120,9 +120,12 @@ def query_vector(query: str, label: Literal['Title', 'Message'], k: int = 3, thr
         nodes = []
         for record in results:
             properties = dict(record["properties"])
+            # ベクトルデータを削除
             if "embedding" in properties:
                 del properties["embedding"]
-
+            # create_time, scoreの値を簡略化
+            if "create_time" in properties:
+                properties["create_time"] = properties["create_time"].strftime("%Y-%m-%dT%H:%M:%SZ")
             score = round(record["score"], 3)
             properties["score"] = score
             nodes.append(properties)
@@ -137,8 +140,8 @@ def query_messages(user_input: str, k: int = 3):
         （chat historyはノイズになるので追加しない）
         近しい過去のmessageのuser_input_entityを取り出す。
         取り出したentityは、関連するnode、relationshipsを得るため、get_memory_from_tripletに渡す。"""
-    # vector search messages （前後のMessageの取得も検討）
-    messages = query_vector(user_input, label="Message", k=k)
+    # vector search messages
+    messages = query_vector(user_input, label="Message", k=k)   # [TODO] 前後のMessageの取得も検討
 
     # user_input_entityを取り出してtripletsにまとめる。
     nodes_set = set()
@@ -146,7 +149,7 @@ def query_messages(user_input: str, k: int = 3):
 
     for message in messages:
         logger.info(f"message: {message}")
-        user_input_entity = Triplets.model_validate_json(message["user_input_entity"]) if message["user_input_entity"] else None
+        user_input_entity = Triplets.model_validate_json(message.get("user_input_entity")) if message.get("user_input_entity") else None
         if user_input_entity is not None:
             nodes_set.update(user_input_entity.nodes)
             relationships_set.update(user_input_entity.relationships)
@@ -156,7 +159,7 @@ def query_messages(user_input: str, k: int = 3):
     message_nodes = []
     for message in messages:
         message.pop("user_input_entity", None)
-        name = message.pop("create_time", "unknown date")   # LLMが時系列を把握しやすいように、日時情報をnameに割り当て。
+        name = str(message.pop("create_time", "unknown date"))   # LLMが時系列を把握しやすいように、日時情報をnameに割り当て。
         message_nodes.append(Node(label="Message", name=name, properties=message))
 
     return message_nodes, user_input_entities
@@ -168,14 +171,14 @@ async def create_and_update_title(title: str, new_title: str | None = None):
     pa_vector = get_embedding(new_title) if new_title else get_embedding(title)
     # 現在のUTC日時を取得し、ISO 8601形式の文字列に変換
     current_utc_datetime = datetime.utcnow()
-    current_time = current_utc_datetime.strftime("%Y-%m-%dT%H:%M:%SZ")
+    current_time = current_utc_datetime.isoformat() + "Z"
 
     with driver.session() as session:
         session.run(
             """
             MERGE (a:Title {title: $title})
-            ON CREATE SET a.create_time = $create_time, a.update_time = $create_time, a.title = $new_title
-            ON MATCH SET a.update_time = $update_time, a.title = $new_title
+            ON CREATE SET a.create_time = datetime($create_time), a.update_time = datetime($create_time), a.title = $new_title
+            ON MATCH SET a.update_time = datetime($update_time), a.title = $new_title
             WITH a
             CALL db.create.setNodeVectorProperty(a, 'embedding', $vector)
             """,
@@ -207,11 +210,11 @@ async def store_message(
         # 親ノードを更新する(update_timeを更新する)
         title_id = session.run(
             """
-                MERGE (a:Title {title: $title})
-                ON CREATE SET a.create_time = $create_time, a.update_time = $create_time
-                ON MATCH SET a.update_time = $update_time
-                RETURN id(a) AS title_id
-                """,
+            MERGE (a:Title {title: $title})
+            ON CREATE SET a.create_time = datetime($create_time), a.update_time = datetime($create_time)
+            ON MATCH SET a.update_time = datetime($update_time)
+            RETURN id(a) AS title_id
+            """,
             title=title,
             create_time=create_time,
             update_time=update_time,
@@ -221,13 +224,19 @@ async def store_message(
         embed_message = f"{source}: {user_input}\n {AI}: {ai_response}"
         vector = get_embedding(embed_message)  # user_input, ai_responseのセットを保存し、user_inputでqueryする想定
         result = session.run(
-            """CREATE (b:Message {create_time: $create_time, source: $source,
-                             user_input: $user_input, user_input_entity: $user_input_entity,
-                             AI: $AI, ai_response: $ai_response})
-                             WITH b
-                             CALL db.create.setNodeVectorProperty(b, 'embedding', $vector)
-                             RETURN id(b) AS node_id
-                            """,
+            """
+            CREATE (b:Message {
+                create_time: datetime($create_time),
+                source: $source,
+                user_input: $user_input,
+                user_input_entity: $user_input_entity,
+                AI: $AI,
+                ai_response: $ai_response
+            })
+            WITH b
+            CALL db.create.setNodeVectorProperty(b, 'embedding', $vector)
+            RETURN id(b) AS node_id
+            """,
             create_time=create_time,
             source=source,
             user_input=user_input,
@@ -256,26 +265,26 @@ async def store_message(
                 new_node_id=new_node_id,
                 former_node_id=former_node_id,
             )
-            logger.info(f"Message Node Relation created: {new_node_id}")
+            logger.info(f"Message Node Relation created. id: {new_node_id}")
 
         # user_input_entityへのリレーションを作成
         # 情報をretrieveしやすいように、create_time, propertiesを保存する。
         if user_input_entity is not None:
             for node in user_input_entity.nodes:
                 properties = node.properties if node.properties is not None else {}
-                properties["created_time"] = create_time
-                logger.info(f"properties: {properties}")
+                properties["create_time"] = create_time
                 session.run(
                     f"""
                         MATCH (b) WHERE id(b) = $new_node_id
                         MATCH (d:`{node.label}` {{name: $name}})
                         CREATE (b)-[r:CONTAIN]->(d)
                         SET r = $props
+                        SET r.create_time = datetime($create_time)
                     """,
                     name=node.name,
                     new_node_id=new_node_id,
-                    props=properties
+                    props=properties,
+                    create_time=create_time,
                 )
-                logger.info(f"Message Node Relation with Entity created: {node}")
 
     return new_node_id

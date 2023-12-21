@@ -1,6 +1,8 @@
 import os
 import json
 import re
+import pytz
+from datetime import datetime
 from time import sleep
 from logging import getLogger
 import base64
@@ -47,12 +49,15 @@ async def get_stream_chat_client(input_data: WebSocketInputData):
 # AIの会話応答を行うするクラス
 class StreamChatClient():
     def __init__(self, input_data: WebSocketInputData) -> None:
+        self.time_zone = "Asia/Tokyo"   # [TODO] User Setting
+        self.current_time = datetime.now(pytz.timezone(self.time_zone)).strftime("%Y-%m-%d %H:%M:%S")
+        self.location = "Yokohama"      # [TODO] User node properties and AI node properties
         self.user = input_data.user
         self.AI = input_data.AI
         self.title = input_data.title
         self.client = AsyncOpenAI()
         self.user_input: str = input_data.input_text
-        self.user_input_type: str | None = None  # user_inputのタイプ（question, statement, command, etc.）
+        self.user_input_type: str | None = None  # 不要なTripletsを保存しないための分類（code, documents, chat, question）
         self.user_input_entity: Triplets | None = None  # ユーザー入力から抽出したTriplets
         self.temp_memory: list[str] = []   # ai_responseの一時保存
         self.message_retrieved_memory: Triplets | None = None    # Messageに基づいて、neo4jから取得した一時的な情報
@@ -86,6 +91,9 @@ class StreamChatClient():
         You are to simulate the game character that the young girl named {self.AI}, that have conversation with the player(user) named {self.user}.
         Output the line of {self.AI}.
         If the relationship has "Scenario Flag" type, you must start the scenario by following the instructions in the properties.
+        ----------------------------------------
+        Current Time: {self.current_time}
+        Location: {self.location}
         ----------------------------------------
         Character Settings:
         {character_settings_prompt}

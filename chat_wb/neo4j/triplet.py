@@ -134,7 +134,7 @@ class TripletsConverter():
         return response.choices[0].message.content
 
     @atimer
-    async def run_sequences(self, text: str, short_memory: list[TempMemory] | None = None) -> Triplets | None:        
+    async def run_sequences(self, text: str, short_memory: list[TempMemory] | None = None) -> Triplets | None:
         # for conference_resolution
         self.short_memory = short_memory
 
@@ -151,8 +151,10 @@ class TripletsConverter():
             response = json.loads(response_json)
         except json.JSONDecodeError:        # 有効なJSONでない場合の処理
             logger.error("Invalid response for json.loads")
-            return None  # 出力なしの場合は、Noneを返す。単純質問は、Noneになる傾向。
+            return None
         triplets = Triplets.create(response, self.user_name, self.ai_name)
+        if not triplets.nodes and not triplets.relationships:
+            triplets = None
         logger.info(f"triplets: {triplets}")
         return triplets
 
