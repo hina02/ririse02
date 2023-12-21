@@ -6,9 +6,7 @@ from openai import AsyncOpenAI
 from chat_wb.models import Triplets, Node, Relationships, TempMemory
 from chat_wb.main.prompt import (
     CODE_SUMMARIZER_PROMPT,
-    DOCS_COMPRESSER_PROMPT,
-    DOCS_CONVERTER_PROMPT,
-    COREFERENCE_RESOLUTION_PROMPT,
+    DOCS_SUMMARIZER_PROMPT,
     EXTRACT_TRIPLET_PROMPT,
     TEXT_TRIAGER_PROMPT,
 )
@@ -34,80 +32,7 @@ class TripletsConverter():
         self.ai_name = ai_name
         self.user_input_type = "question"  # questionの時は、neo4jに保存しない。
 
-    async def summerize_code(self, text: str):
-        """Summerize code block for burden of triplets"""
-        system_prompt = CODE_SUMMARIZER_PROMPT
-        user_prompt = text
-        messages = ChatPrompt(
-            system_message=system_prompt,
-            user_message=user_prompt,
-        ).create_messages()
-
-        response = await self.client.chat.completions.create(
-            model="gpt-3.5-turbo-1106",
-            messages=messages,
-            max_tokens=240,
-            temperature=0.3,
-            response_format={"type": "json_object"},
-        )
-        response_json = response.choices[0].message.content
-        logger.info(response_json)
-        return response_json
-
-    async def compress_docs(self, text: str):
-        """Compress long document to 1 sentence."""
-        system_prompt = DOCS_COMPRESSER_PROMPT
-        user_prompt = text
-        messages = ChatPrompt(
-            system_message=system_prompt,
-            user_message=user_prompt,
-        ).create_messages()
-
-        response = await self.client.chat.completions.create(
-            model="gpt-3.5-turbo-1106",
-            messages=messages,
-            max_tokens=240,
-            temperature=0.3,
-        )
-        response_json = response.choices[0].message.content
-        logger.info(response_json)
-        return response_json
-
-    async def convert_docs(self, text: str):
-        """extruct triplets from compressed document"""
-        system_prompt = DOCS_CONVERTER_PROMPT
-        user_prompt = text
-        messages = ChatPrompt(
-            system_message=system_prompt,
-            user_message=user_prompt,
-        ).create_messages()
-
-        response = await self.client.chat.completions.create(
-            model="gpt-3.5-turbo-1106",
-            messages=messages,
-            max_tokens=240,
-            temperature=0.0,
-            response_format={"type": "json_object"},
-        )
-        response_json = response.choices[0].message.content
-        logger.info(response_json)
-        return response_json
-
-    async def summerize_docs(self, text: str):
-        """Summerize long document for burden of triplets"""
-        result = await self.compress_docs(text=text)
-        logger.info(result)
-        response_json = await self.convert_docs(text=result)
-        return response_json
-
-    async def summerize_chat(self, text: str):
-        """Regular method for extruct triplets"""
-        result = await self.coference_resolution(text=text)
-        logger.info(result)
-        response_json = await self.convert_to_triplets(text=result)
-        return response_json
-
-    # triage function
+    # triage summerize function
     async def triage_text(self, text: str) -> str:
         """triage text to chat, question, code, document"""
         # moderation
@@ -125,9 +50,9 @@ class TripletsConverter():
         ).create_messages()
 
         response = await self.client.chat.completions.create(
-            model="gpt-3.5-turbo-1106",
+            model="gpt-4-1106-preview",
             messages=messages,
-            max_tokens=20,
+            max_tokens=16,
             temperature=0.0,
             response_format={"type": "json_object"},
         )
@@ -137,39 +62,47 @@ class TripletsConverter():
         logger.info(result)
         return result
 
-
-    async def coference_resolution(self, text: str):
-        """Output format is {"change": true or false, "changed_sentence": ""}"""
-        # prompt
-        system_prompt = COREFERENCE_RESOLUTION_PROMPT.format(user=self.user_name)
-        user_prompt = f"""{text}"""
+    async def summerize_code(self, text: str):
+        """Summerize code block for burden of triplets"""
+        system_prompt = CODE_SUMMARIZER_PROMPT
+        user_prompt = text
         messages = ChatPrompt(
             system_message=system_prompt,
             user_message=user_prompt,
-            short_memory=self.short_memory if self.short_memory else None,  # 会話履歴を利用して、補正強化。
         ).create_messages()
 
-        # response生成
         response = await self.client.chat.completions.create(
             model="gpt-3.5-turbo-1106",
             messages=messages,
+            max_tokens=512,
+            temperature=0.3,
+            response_format={"type": "json_object"},
+        )
+        response_json = response.choices[0].message.content
+        logger.info(response_json)
+        return response_json
+
+    async def summerize_docs(self, text: str):
+        """Summerize long document for burden of triplets"""
+        system_prompt = DOCS_SUMMARIZER_PROMPT
+        user_prompt = text
+        messages = ChatPrompt(
+            system_message=system_prompt,
+            user_message=user_prompt,
+        ).create_messages()
+
+        response = await self.client.chat.completions.create(
+            model="gpt-3.5-turbo-1106",
+            messages=messages,
+            max_tokens=512,
             temperature=0.0,
             response_format={"type": "json_object"},
         )
-        # 修正がない場合は元のテキストを返す。
         response_json = response.choices[0].message.content
-        try:
-            response = json.loads(response_json)
-            logger.info(response)
-            if response.get("change"):
-                return response.get("changed_sentence")
-            else:
-                return text
-        except Exception as e:
-            logger.error(f"Invalid response for json.loads {e}")
-            return text
+        logger.info(response_json)
+        return response_json
 
-    async def convert_to_triplets(self, text: str):
+    async def summerize_chat(self, text: str):
         """example output "Mary is nurse. Tom married Mary. "
         {
         "Nodes": [
@@ -182,7 +115,7 @@ class TripletsConverter():
         }
         """
         # prompt
-        system_prompt = EXTRACT_TRIPLET_PROMPT
+        system_prompt = EXTRACT_TRIPLET_PROMPT.format(user=self.user_name, ai=self.ai_name)
         user_prompt = f"{text}"
         messages = ChatPrompt(
             system_message=system_prompt,
@@ -191,9 +124,10 @@ class TripletsConverter():
 
         # response生成
         response = await self.client.chat.completions.create(
-            model="gpt-3.5-turbo-1106",
+            model="gpt-4-1106-preview",
             messages=messages,
             temperature=0.0,
+            max_tokens=2048,
             response_format={"type": "json_object"},
             seed=0,  # シード値固定した方が安定するかもしれない。
         )

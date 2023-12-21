@@ -107,4 +107,6 @@ async def triplets(text: str):
 
 @app.get("/run_sequences")
 async def run_sequences_api(text: str):
-    return await TripletsConverter().run_sequences(text)
+    converter = TripletsConverter()
+    await converter.triage_text(text)
+    return await converter.run_sequences(text)
