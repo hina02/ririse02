@@ -188,7 +188,7 @@ class StreamChatClient():
         message_nodes, entity = query_messages(self.user_input)
         # entityに関連するnode, relationshipを取り出す。
         converter = TripletsConverter(client=self.client, user_name=self.user, ai_name=self.AI)
-        message_retrieved_memory = await converter.get_memory_from_triplet(entity, self.user_input)
+        message_retrieved_memory = await converter.get_memory_from_triplet(entity)
         if message_retrieved_memory is None:
             return None
         # Message, tripletsをwebsocketに送信
@@ -219,7 +219,7 @@ class StreamChatClient():
 
     # retrieve memory
         # Neo4jから、user_input_entityに関連したnode,relationshipsを取得し、short_memoryに格納
-        result = await converter.get_memory_from_triplet(triplets, self.user_input)
+        result = await converter.get_memory_from_triplet(triplets)
         if result is None:
             return None
         logger.info(f"retrieved_memory: {len(result.nodes)} nodes, {len(result.relationships)} relationships")

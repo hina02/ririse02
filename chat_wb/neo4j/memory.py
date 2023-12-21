@@ -1,11 +1,10 @@
 from neo4j import GraphDatabase
 import os
-import json
 from datetime import datetime
 from logging import getLogger
 from functools import lru_cache
 from typing import Literal
-from chat_wb.models import WebSocketInputData, Triplets, Node, ShortMemory
+from chat_wb.models import WebSocketInputData, Triplets, Node, Relationships
 from openai_api.common import get_embedding
 
 # ロガー設定
@@ -101,7 +100,7 @@ def get_titles() -> list[str]:
     return nodes
 
 
-def query_vector(query: str, label: Literal['Title', 'Message'], k: int = 3, threshold: float = 0.9):
+def query_vector(query: str, label: Literal['Title', 'Message'], k: int = 3, threshold: float = 0.9) -> list[dict]:
     """インデックスを作成したラベル(Title, Message)から、ベクトルを検索する"""
     vector = get_embedding(query)
 
@@ -163,7 +162,7 @@ def query_messages(user_input: str, k: int = 3):
     return message_nodes, user_input_entities
 
 
-async def create_and_update_title(title: str, new_title: str | None = None) -> int:
+async def create_and_update_title(title: str, new_title: str | None = None):
     """Titleノードを作成、更新する"""
     # title名でベクトル作成
     pa_vector = get_embedding(new_title) if new_title else get_embedding(title)

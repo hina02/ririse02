@@ -379,42 +379,38 @@ async def get_node(label: str, name: str) -> list[Node] | None:
         return nodes if nodes else None
 
 
-# ノードからすべての双方向のリレーションとプロパティ、ノードを得る（Message,Titleを除く）
-async def get_node_relationships(label: str, name: str) -> list[Relationships] | None:
+# 指定した深さまでの双方向リレーションシップを取得する（Message,Titleを除く）。
+async def get_node_relationships(label: str, name: str, depth: int = 1) -> list[Relationships] | None:
     with driver.session() as session:
-        result = session.run(
+        results = session.run(
             f"""
-            MATCH (a:{label}) WHERE $name IN a.name_variations OR a.name = $name OR a.user_input = $name
-            MATCH (a)-[r]-(b)
-            WHERE NOT 'Message' IN labels(b) AND NOT 'Title' IN labels(b)
-            RETURN type(r) as relationship_type, properties(r) as properties,
-                labels(startNode(r))[0] as start_node_label,
-                labels(endNode(r))[0] as end_node_label,
-                CASE labels(startNode(r))[0]
-                    WHEN 'Message' THEN startNode(r).user_input
-                    ELSE startNode(r).name
-                END as start_node_name,
-                endNode(r).name as end_node_name
-        """,
+            MATCH (start:{label})
+            WHERE $name IN start.name_variations OR start.name = $name
+            MATCH path = (start)-[r*1..{depth}]-(end)
+            WHERE NONE(node IN nodes(path) WHERE 'Message' IN labels(node) OR 'Title' IN labels(node))
+            UNWIND r as rel
+            RETURN type(rel) as relationship_type, properties(rel) as properties,
+                startNode(rel).name as start_node_name, labels(startNode(rel))[0] as start_node_label,
+                endNode(rel).name as end_node_name, labels(endNode(rel))[0] as end_node_label
+            """,
             name=name,
+            depth=depth,
         )
         relationships = []
-        for record in result:
-            relation = Relationships(
+        for record in results:
+            relationships.append(Relationships(
                 type=record["relationship_type"],
-                start_node=record["start_node_name"],
-                end_node=record["end_node_name"],
                 properties=record["properties"],
                 start_node_label=record["start_node_label"],
+                start_node=record["start_node_name"],
                 end_node_label=record["end_node_label"],
-            )
-            relationships.append(relation)
+                end_node=record["end_node_name"],
+            ))
         logger.info(f"relationships: {relationships}")
-        return relationships if relationships else None
+    return relationships if relationships else None
 
 
 # ノードとノードの間にあるすべての双方向のリレーションとプロパティ（content）を得る。
-# （labelずれがある可能性がある。ここでは広く検索するため、labelを指定しない、ことも検討する。処理時間とのトレードオフ）
 async def get_node_relationships_between(
     label1: str, label2: str, name1: str, name2: str
 ) -> list[Relationships] | None:

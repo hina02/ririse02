@@ -157,14 +157,14 @@ class TripletsConverter():
         return triplets
 
     @staticmethod
-    async def get_memory_from_triplet(triplets: Triplets, user_input: str) -> Triplets:
+    async def get_memory_from_triplet(triplets: Triplets, depth: int = 1) -> Triplets:
         """user_input_entityに基づいて、Neo4jへのクエリレスポンスを取得 1回で1秒程度"""
         tasks = []
         # nodeの取得
         for node in triplets.nodes:
             tasks.append(get_node(node.label, node.name))
-            # nodeが持つすべてのrealtion(Messageを除く)を取得
-            tasks.append(get_node_relationships(node.label, node.name))
+            # nodeが持つすべてのrealtion(Messageを除く)を取得（さらにdepthで深く探索）
+            tasks.append(get_node_relationships(node.label, node.name, depth))
 
         if triplets.relationships:
             for relationship in triplets.relationships:
