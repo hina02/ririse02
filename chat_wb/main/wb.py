@@ -88,7 +88,8 @@ class StreamChatClient():
                     TempMemory(
                         user_input=message["user_input"],
                         ai_response=message["ai_response"],
-                        triplets=json.loads(message["user_input_entity"]) if message["user_input_entity"] else None
+                        triplets=json.loads(message["user_input_entity"]) if message["user_input_entity"] else None,
+                        time=message["create_time"].to_native()
                     )
                 )
         self.short_memory = ShortMemory(short_memory=short_memory, limit=self.short_memory_limit)
@@ -98,7 +99,7 @@ class StreamChatClient():
         self.user_input = user_input
 
     # 短い文章で出力を返す（これ複数回で1回の返答）
-    async def streamchat(self, max_tokens: int = 240):
+    async def streamchat(self, max_tokens: int):
         # system_prompt
         system_prompt = """Output line in Japanese without character name.
                         Don't reveal hidden information.
@@ -154,21 +155,26 @@ class StreamChatClient():
         # user_prompt
         user_prompt = f"""user: {self.user_input}"""
 
-        # ai_prompt
-        ai_prompt = "".join(self.temp_memory)   # 単純にこれまでの履歴を入れた場合、それに続けて生成される。
+        # temp_memory
+        temp_memory = []
+        for i in range(len(self.temp_memory)):
+            if i == 0:
+                temp_memory.append(TempMemory(user_input=self.user_input, ai_response=self.temp_memory[i]))
+            else:
+                temp_memory.append(TempMemory(user_input="Continue it", ai_response=self.temp_memory[i]))
 
         messages = ChatPrompt(
             system_message=system_prompt,
             user_message=user_prompt,
-            assistant_message=ai_prompt,
             short_memory=self.short_memory.short_memory,    # short_memoryから、会話履歴を追加
+            temp_memory=temp_memory,
         ).create_messages()
 
         # response生成
         response = await self.client.chat.completions.create(
             model="gpt-4-1106-preview",
             messages=messages,
-            max_tokens=max_tokens,  # 240をベースにする。初回のみ応答速度を上げるために、120で渡す。
+            max_tokens=max_tokens,
             temperature=0.7,
             frequency_penalty=0.3,  # 繰り返しを抑制するために必須。
         )
@@ -291,56 +297,59 @@ class StreamChatClient():
         code_block = []
         inside_code_block = False
 
-        response = await self.streamchat(max_tokens=512)  # ここにself.message_retrieved_memoryを入れておけば、変更されたタイミングで、適用される。
+        # response生成の調整
+        n = 3
+        max_tokens = 140
+        for i in range(n):
+            # self.user_input_typeがchatの場合、1回のみ生成する。
+            if i > 0 and self.user_input_type == "chat":
+                break
 
-        # テキストを正規表現で分割してリストに整形
-        formatted_text = self.format_text(response)
+            # 生成したテキストを取得（responseを早くするため、max_tokensを小さくして繰り返す）
+            response = await self.streamchat(max_tokens)  # ここにself.message_retrieved_memoryを入れておけば、変更されたタイミングで、適用される。
 
-        # 既にテキストが存在するかどうかを確認し、繰り返しレスポンスになっている場合、そこで中断する。
-        for text in formatted_text:
-            if text in self.temp_memory:
-                return "\n".join(self.temp_memory)
+            # テキストを終端記号で分割してリストに整形
+            formatted_text = self.format_text(response)
 
-        # 整形した文章（終端記号区切り）をtemp_memoryに追加
-        self.temp_memory.extend(formatted_text)
+            texts_for_get_audio = []    # 音声合成するテキストを格納するリスト
+            # """を含むコードブロックの確認
+            for text in formatted_text:
+                if "```" in text:
+                    if not inside_code_block:  # Starting a new code block
+                        inside_code_block = True
+                        code_block.append(text)
+                    else:  # Ending an existing code block
+                        inside_code_block = False
+                        code_block.append(text)
+                        await handle_code_block(code_block, websocket)
+                        code_block = []
+                    continue
 
-        texts_for_get_audio = []    # 音声合成するテキストを格納するリスト
-        # """を含むコードブロックの確認
-        for text in formatted_text:
-            if "```" in text:
-                if not inside_code_block:  # Starting a new code block
-                    inside_code_block = True
+                if (
+                    inside_code_block
+                ):  # If inside a code block, just append the text to code_block
                     code_block.append(text)
-                else:  # Ending an existing code block
-                    inside_code_block = False
-                    code_block.append(text)
-                    await handle_code_block(code_block, websocket)
-                    code_block = []
-                continue
+                    continue
 
-            if (
-                inside_code_block
-            ):  # If inside a code block, just append the text to code_block
-                code_block.append(text)
-                continue
+                # コードブロックでない場合、音声合成を行う。
+                else:
+                    texts_for_get_audio.append(text)
 
-            # コードブロックでない場合、音声合成を行う。
-            else:
-                texts_for_get_audio.append(text)
-
-        # voimax_lengthを超えないように、文字列にして_get_voiceに渡す。
-        chunk = ""
-        max_length = 140
-        for text in texts_for_get_audio:
-            if len(chunk) + len(text) > max_length:
+            # voimax_lengthを超えないように、文字列にして_get_voiceに渡す。
+            chunk = ""
+            max_length = 140
+            for text in texts_for_get_audio:
+                if len(chunk) + len(text) > max_length:
+                    await _get_voice(chunk, websocket)
+                    chunk = text
+                else:
+                    chunk += text
+            if chunk:
                 await _get_voice(chunk, websocket)
-                chunk = text
-            else:
-                chunk += text
-        if chunk:
-            await _get_voice(chunk, websocket)
 
-        logger.info(f"temp_memory: {self.temp_memory}")
+            # 生成されたテキストをtemp_memoryに追加
+            self.temp_memory.extend(formatted_text)
+            logger.info(f"temp_memory: {self.temp_memory}")
 
 
 # コードブロックテキストをWebSoketで送り返す。

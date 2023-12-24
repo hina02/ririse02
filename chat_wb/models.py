@@ -2,6 +2,7 @@ import re
 import json
 from logging import getLogger
 from pydantic import BaseModel
+from datetime import datetime
 
 # ロガー設定
 logger = getLogger(__name__)
@@ -196,6 +197,7 @@ class TempMemory(BaseModel):
     user_input: str
     ai_response: str
     triplets: Triplets | None = None         # 長期記憶(from neo4j)
+    time: datetime | None = None             # メッセージの時刻 (古いメッセージの時刻を示すために使用)
 
 
 class ShortMemory(BaseModel):

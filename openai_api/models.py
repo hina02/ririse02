@@ -2,6 +2,9 @@ from pydantic import BaseModel, validator
 from typing import Literal
 import base64
 from chat_wb.models import TempMemory
+from logging import getLogger
+
+logger = getLogger(__name__)
 
 
 class Message(BaseModel):
@@ -20,6 +23,7 @@ class ChatPrompt(BaseModel):
     user_message: str | list[dict]
     assistant_message: str | None = None
     short_memory: list[TempMemory] | None = None
+    temp_memory: list[TempMemory] | None = None
 
     def create_messages(self) -> list:
         """system, short_memory([user,assistant] * n), user, assistant"""
@@ -28,12 +32,27 @@ class ChatPrompt(BaseModel):
         # short_memoryから、user, assistantのメッセージ履歴を取得
         if self.short_memory is not None:
             for temp_memory in self.short_memory:
+                # timeがある場合、timeを追加（short_memoryをloadした際のmessage時刻を示す。turn over時の時刻を無理に取る必要はない）
+                if temp_memory.time:
+                    messages.append(Message(role="user", content=f"{temp_memory.time}: {temp_memory.user_input}"))
+                    messages.append(Message(role="assistant", content=f"{temp_memory.time}: {temp_memory.ai_response}"))
+                else:
+                    messages.append(Message(role="user", content=temp_memory.user_input))
+                    messages.append(Message(role="assistant", content=temp_memory.ai_response))
+
+        # temp_memoryの追加
+        if self.temp_memory:
+            for temp_memory in self.temp_memory:
                 messages.append(Message(role="user", content=temp_memory.user_input))
                 messages.append(Message(role="assistant", content=temp_memory.ai_response))
-        # 現在のuser, assistantのメッセージを追加
-        messages.append(Message(role="user", content=self.user_message))
-        if self.assistant_message is not None:
-            messages.append(Message(role="assistant", content=self.assistant_message))
+
+        else:
+            # 現在のuser, assistantのメッセージを追加
+            messages.append(Message(role="user", content=self.user_message))
+            if self.assistant_message is not None:
+                messages.append(Message(role="assistant", content=self.assistant_message))
+
+        logger.info(f"messages: {messages}")
         return messages
 
 
