@@ -53,5 +53,5 @@ If len(Nodes) > 2, Relationship_types is required.
 If there is no node and relationship, output is {{Nodes: [], Relationships: []}}.
 Please avoid using abstract or non-specific terms.
 {{Nodes: [{{"label", "name", "properties"}}],
-Relationships: [{{"start_node": "", "end_node": "", "type": "", "properties": dict(detailed information(e.g., action, background, context, duration))}}]}}
+Relationships: [{{"start_node": "", "end_node": "", "type": "", "properties": dict(detailed information(e.g., action, time, etc.))}}]}}
 """

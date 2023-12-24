@@ -4,7 +4,7 @@ from datetime import datetime
 from logging import getLogger
 from functools import lru_cache
 from typing import Literal
-from chat_wb.models import WebSocketInputData, Triplets, Node, Relationships
+from chat_wb.models import WebSocketInputData, Triplets, Node
 from openai_api.common import get_embedding
 
 # ロガー設定
@@ -100,7 +100,24 @@ def get_titles() -> list[str]:
     return nodes
 
 
-def query_vector(query: str, label: Literal['Title', 'Message'], k: int = 3, threshold: float = 0.9) -> list[dict]:
+def get_latest_messages(title: str, n: int = 7) -> list[dict] | None:
+    """最新のメッセージを取得する"""
+    with driver.session() as session:
+        result = session.run(
+            """
+            MATCH (t:Title {title: $title})-[:CONTAIN]->(m:Message)
+            RETURN m
+            ORDER BY m.create_time DESC
+            LIMIT $n
+            """,
+            title=title,
+            n=n
+        )
+        messages = [record["m"] for record in result]
+        return messages
+
+
+def query_vector(query: str, label: Literal['Title', 'Message'], k: int = 3, threshold: float = 0.9, time_threshold: int = 365) -> list[dict]:
     """インデックスを作成したラベル(Title, Message)から、ベクトルを検索する"""
     vector = get_embedding(query)
 
@@ -109,12 +126,14 @@ def query_vector(query: str, label: Literal['Title', 'Message'], k: int = 3, thr
             """
             CALL db.index.vector.queryNodes($label, $k, $vector)
             YIELD node, score
-            WHERE score > $threshold
-            RETURN node AS properties, score""",
+            WHERE score > $threshold AND node.create_time > datetime() - duration({days: $time_threshold})
+            RETURN node AS properties, score
+            ORDER BY score DESC""",
             label=label,
             k=k,
             vector=vector,
             threshold=threshold,
+            time_threshold=time_threshold,
         )
 
         nodes = []
@@ -130,12 +149,10 @@ def query_vector(query: str, label: Literal['Title', 'Message'], k: int = 3, thr
             properties["score"] = score
             nodes.append(properties)
 
-        nodes = sorted(nodes, key=lambda x: x["score"], reverse=True)
-
     return nodes
 
 
-def query_messages(user_input: str, k: int = 3):
+async def query_messages(user_input: str, k: int = 3):
     """user_inputを入れて、(user_input => user_input, ai_responseのセットを想定)
         （chat historyはノイズになるので追加しない）
         近しい過去のmessageのuser_input_entityを取り出す。
@@ -148,7 +165,6 @@ def query_messages(user_input: str, k: int = 3):
     relationships_set = set()
 
     for message in messages:
-        logger.info(f"message: {message}")
         user_input_entity = Triplets.model_validate_json(message.get("user_input_entity")) if message.get("user_input_entity") else None
         if user_input_entity is not None:
             nodes_set.update(user_input_entity.nodes)
@@ -192,6 +208,7 @@ async def create_and_update_title(title: str, new_title: str | None = None):
         return True
 
 
+# [OPTIMIZE] user_input_entityにrelationship情報を保存するのは冗長かもしれない。
 async def store_message(
     input_data: WebSocketInputData,
     ai_response: str,

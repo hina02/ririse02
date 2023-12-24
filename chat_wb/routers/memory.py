@@ -28,10 +28,10 @@ def get_titles_api():
 
 
 @memory_router.get("/get_memory_from_triplet", tags=["memory"])
-async def get_memory_from_triplet_api(text: str):
+async def get_memory_from_triplet_api(text: str, AI: str = "彩澄りりせ", user: str = "彩澄しゅお", depth: int = 1):
     converter = TripletsConverter()
     triplets = await converter.run_sequences(text)
-    return await converter.get_memory_from_triplet(triplets)
+    return await converter.get_memory_from_triplet(triplets, AI, user, depth)
 
 
 @memory_router.post("/store_memory_from_triplet", tags=["memory"])

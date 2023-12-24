@@ -31,9 +31,11 @@ class Node(BaseModel):
 
     def to_cypher(self) -> str:
         """Cypherクエリを生成する"""
-        prop_str = ', '.join([f"{key}: '{value}'" for key, value in self.properties.items()])
-        prop_str = f"{{ {prop_str} }}" if prop_str else ""
-        return f"({self.name}:{self.label} {prop_str})"
+        props = ""
+        if self.properties:
+            props = ', '.join([f"{key}: '{value}'" for key, value in self.properties.items()])
+            props = f"{{ {props} }}" if props else ""
+        return f"({self.name}:{self.label} {props})"
 
 
 class Relationships(BaseModel):
@@ -91,7 +93,7 @@ class Triplets(BaseModel):
     @classmethod
     def create(cls, triplets_data, user_name: str, ai_name: str):
         """LLMで生成されたTripletsをTripletsオブジェクトに変換する"""
-        logger.info(f"triplets_data: {triplets_data}")  # [OPTIMIZE] user_name, ai_nameの置換は、プロンプトの向上で不要となった可能性あり。出力が安定するようなら省く。
+        # [OPTIMIZE] user_name, ai_nameの置換は、プロンプトの向上で不要となった可能性あり。出力が安定するようなら省く。
         nodes = []
         if 'Nodes' in triplets_data:
             for node in triplets_data['Nodes']:
@@ -116,7 +118,7 @@ class Triplets(BaseModel):
                     SECOND_PERSON_PRONOUNS else user_name if relationship['start_node'].lower() in FIRST_PERSON_PRONOUNS else ai_name,
                     end_node=relationship['end_node'] if relationship['end_node'].lower() not in FIRST_PERSON_PRONOUNS +
                     SECOND_PERSON_PRONOUNS else user_name if relationship['end_node'].lower() in FIRST_PERSON_PRONOUNS else ai_name,
-                    properties=relationship['properties'],
+                    properties=relationship.get('properties', None),
                     start_node_label=next((node.label for node in nodes if node.name == relationship['start_node']), None),
                     end_node_label=next((node.label for node in nodes if node.name == relationship['end_node']), None)
                 )
@@ -133,8 +135,12 @@ class Triplets(BaseModel):
         cypher_relationships = [rel.to_cypher() for rel in self.relationships]
 
         cypher_data = {
-            "nodes": cypher_nodes,
-            "relationships": cypher_relationships
+            key: value
+            for key, value in {
+                "nodes": cypher_nodes,
+                "relationships": cypher_relationships
+            }.items()
+            if value
         }
         return json.dumps(cypher_data, ensure_ascii=False)
 
@@ -199,6 +205,15 @@ class ShortMemory(BaseModel):
     relationships_set: set[Relationships] = set()
     triplets: Triplets | None = None
 
+    def convert_to_tripltets(self):
+        # セットに変換（重複を削除）
+        for temp_memory in self.short_memory:
+            if temp_memory.triplets:
+                self.nodes_set.update(temp_memory.triplets.nodes)
+                self.relationships_set.update(temp_memory.triplets.relationships)
+        # Tripletsに変換
+        self.triplets = Triplets(nodes=list(self.nodes_set), relationships=list(self.relationships_set))
+
     def memory_turn_over(self, user_input: str, ai_response: str, retrieved_memory: Triplets | None = None):
         temp_memory = TempMemory(
             user_input=user_input,
@@ -212,10 +227,5 @@ class ShortMemory(BaseModel):
         while len(self.short_memory) > self.limit:
             self.short_memory.pop(0)
 
-        # セットに変換（重複を削除）
-        for temp_memory in self.short_memory:
-            if temp_memory.triplets:
-                self.nodes_set.update(temp_memory.triplets.nodes)
-                self.relationships_set.update(temp_memory.triplets.relationships)
-        # Tripletsに変換
-        self.triplets = Triplets(nodes=list(self.nodes_set), relationships=list(self.relationships_set))
+        # セットに変換（重複を削除）し、Tripletsに変換
+        self.convert_to_tripltets()

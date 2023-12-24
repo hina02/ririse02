@@ -12,7 +12,6 @@ from chat_wb.main.prompt import (
 )
 from chat_wb.neo4j.neo4j import (
     get_node_relationships,
-    get_node_relationships_between,
     get_node,
     create_update_node,
     create_update_relationship,
@@ -145,7 +144,7 @@ class TripletsConverter():
             response_json = await self.summerize_docs(text=text)
         else:
             response_json = await self.summerize_chat(text=text)
-
+        logger.info(f"response_json: {response_json}")
         # convert to triplets model
         try:
             response = json.loads(response_json)
@@ -155,27 +154,20 @@ class TripletsConverter():
         triplets = Triplets.create(response, self.user_name, self.ai_name)
         if not triplets.nodes and not triplets.relationships:
             triplets = None
-        logger.info(f"triplets: {triplets}")
         return triplets
 
     @staticmethod
-    async def get_memory_from_triplet(triplets: Triplets, depth: int = 1) -> Triplets:
-        """user_input_entityに基づいて、Neo4jへのクエリレスポンスを取得 1回で1秒程度"""
+    async def get_memory_from_triplet(triplets: Triplets, AI: str, user: str, depth: int = 1) -> Triplets:
+        """user_input_entityに基づいて、Neo4jへのクエリレスポンスを取得 1回で1秒程度
+            Character Settingと情報が重複するため、AI, Userに相当するnodeを事前に除外して実行する。"""
         tasks = []
+        # triplets.nodesから、name = AI, Userのnodeを除外する。
+        nodes = [node for node in triplets.nodes if node.name not in [AI, user]]
         # nodeの取得
         for node in triplets.nodes:
             tasks.append(get_node(node.label, node.name))
             # nodeが持つすべてのrealtion(Messageを除く)を取得（depth指定でさらに深く探索）
             tasks.append(get_node_relationships(node.label, node.name, depth))
-
-        if triplets.relationships:
-            for relationship in triplets.relationships:
-                # node1とnode2間のrelationを取得
-                tasks.append(get_node_relationships_between(
-                    relationship.start_node_label,
-                    relationship.end_node_label,
-                    relationship.start_node,
-                    relationship.end_node))
 
         responses = await asyncio.gather(*tasks)
         # 結果を、nodesとrelationsに整理する。
