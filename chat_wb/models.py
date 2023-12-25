@@ -135,6 +135,9 @@ class Triplets(BaseModel):
         cypher_nodes = [node.to_cypher() for node in self.nodes]
         cypher_relationships = [rel.to_cypher() for rel in self.relationships]
 
+        if not cypher_nodes and not cypher_relationships:
+            return ""
+
         cypher_data = {
             key: value
             for key, value in {

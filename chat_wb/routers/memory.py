@@ -38,7 +38,7 @@ async def get_memory_from_triplet_api(text: str, AI: str = "彩澄りりせ", us
 async def store_memory_from_triplet_api(text: str):
     converter = TripletsConverter()
     triplets = await converter.run_sequences(text)
-    return converter.store_memory_from_triplet(triplets)
+    return await converter.store_memory_from_triplet(triplets)
 
 
 @memory_router.post("/create_and_update_title", tags=["memory"])

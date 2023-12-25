@@ -108,7 +108,7 @@ class StreamChatClient():
         character_settings_prompt = self.character_settings
 
         character_prompt = f"""
-        You are to simulate the game character that the young girl named {self.AI}, that have conversation with the player(user) named {self.user}.
+        You are to simulate the game character that the young girl named {self.AI}, that have conversation with the player named {self.user}.
         Output the line of {self.AI}.
         If the relationship has "Scenario Flag" type, you must start the scenario by following the instructions in the properties.
         ----------------------------------------
@@ -348,7 +348,7 @@ class StreamChatClient():
                 await _get_voice(chunk, websocket)
 
             # 生成されたテキストをtemp_memoryに追加
-            self.temp_memory.extend(formatted_text)
+            self.temp_memory.extend(texts_for_get_audio)
             logger.info(f"temp_memory: {self.temp_memory}")
 
 
