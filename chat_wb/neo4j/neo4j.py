@@ -298,7 +298,7 @@ def get_all_relationships() -> list[str]:
 
 
 # 指定したTitle（title）のMessage（user_input, ai_response）のノードを取得する。
-def get_message_nodes(title: str) -> list[Node]:
+def get_message_nodes(title: str, limit: int = 7) -> list[Node]:
     nodes = []
 
     with driver.session() as session:
@@ -307,8 +307,10 @@ def get_message_nodes(title: str) -> list[Node]:
             """
             MATCH (t:Title {title: $title})-[:CONTAIN]->(m:Message)
             RETURN labels(t) as title_label, t.title as title_name, labels(m) as message_label, m.user_input as user_input, m.ai_response as ai_response
+            LIMIT $limit
             """,
-            title=title
+            title=title,
+            limit=limit
         )
         for record in result:
             # タイトルのノードを追加
@@ -324,38 +326,40 @@ def get_message_nodes(title: str) -> list[Node]:
 
 
 # 指定したTitle（title）のMessage（user_input）起点のリレーションシップのタイプと、始点ノード・終点ノードの名前を取得する
-def get_message_relationships(title: str) -> list[Relationships]:
+def get_message_relationships(title: str, limit: int = 7) -> list[Relationships]:
     relationships = []
 
     with driver.session() as session:
-        # 指定したタイトルから深さ2までのリレーションシップ(Title -> Message, Message -> Message or Entity, )を取得
+        # 指定したタイトルからMessageを取得し、さらにMessageから伸びるリレーションシップを取得
         result = session.run(
             """
-            MATCH path = (n:Title {title: $title})-[*1..2]->(m)
-            WITH relationships(path) as rels
-            UNWIND rels as r
-            WITH startNode(r) as start, endNode(r) as end, type(r) as type
-            RETURN 
-                CASE labels(start)[0]
-                    WHEN 'Title' THEN start.title
-                    WHEN 'Message' THEN start.user_input
-                    ELSE start.name
-                END as start_node,
-                type,
-                CASE labels(end)[0]
-                    WHEN 'Title' THEN end.title
-                    WHEN 'Message' THEN end.user_input
-                    ELSE end.name
-                END as end_node
+            MATCH (n:Title {title: $title})-[r]->(m:Message)
+            WITH n, r, m
+            ORDER BY r.timestamp DESC
+            LIMIT $limit
+
+            MATCH (m)-[r2]->(o)
+            RETURN
+                n.title as start_node_title,
+                type(r) as relationship_type_to_message,
+                m.user_input as message_content,
+
+                m.user_input as start_node_message,
+                type(r2) as relationship_type_from_message,
+                CASE labels(o)[0]
+                    WHEN 'Message' THEN o.user_input
+                    ELSE o.name
+                END as end_node_from_message
             """,
-            title=title
+            title=title,
+            limit=limit
         )
+        relationships = []
         for record in result:
-            start_node = record["start_node"]
-            end_node = record["end_node"]
-            if start_node and end_node:
-                relationship = Relationships(type=record["type"], start_node=record["start_node"], end_node=record["end_node"], properties=None, start_node_label=None, end_node_label=None)
-                relationships.append(relationship)
+            # TitleからMessageへのリレーションシップ
+            relationships.append(Relationships(type=record["relationship_type_to_message"], start_node=record["start_node_title"], end_node=record["message_content"], properties=None, start_node_label=None, end_node_label=None))
+            # Messageから伸びるリレーションシップ
+            relationships.append(Relationships(type=record["relationship_type_from_message"], start_node=record["start_node_message"], end_node=record["end_node_from_message"], properties=None, start_node_label=None, end_node_label=None))
 
     return relationships
 
