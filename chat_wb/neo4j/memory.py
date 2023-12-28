@@ -181,6 +181,37 @@ async def query_messages(user_input: str, k: int = 3):
     return message_nodes, user_input_entities
 
 
+async def new_query_messages(user_input: str, k: int = 3):
+    # vector search messages
+    results = session.run(
+                """
+                CALL db.index.vector.queryNodes($label, $k, $vector)
+                YIELD node, score
+                WHERE score > $threshold AND node.create_time > datetime() - duration({days: $time_threshold})
+                RETURN node AS properties, score
+                ORDER BY score DESC
+                
+                WITH db.index.vector.queryNodes($label, $k, $vector) AS results
+                UNWIND results AS result
+                WITH result.node AS messageNode, result.score AS score
+                WHERE score > $threshold AND messageNode.create_time > datetime() - duration({days: $time_threshold})
+                MATCH (messageNode)-[r]->(relatedNode)
+                WITH messageNode, r, relatedNode, score
+                LIMIT 2
+                RETURN messageNode AS properties, collect({relation: r, node: relatedNode}) AS relations
+                """,
+                label=label,
+                k=k,
+                vector=vector,
+                threshold=threshold,
+                time_threshold=time_threshold,
+            )
+
+
+
+
+
+
 async def create_and_update_title(title: str, new_title: str | None = None):
     """Titleノードを作成、更新する"""
     # title名でベクトル作成

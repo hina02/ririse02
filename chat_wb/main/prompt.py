@@ -46,7 +46,7 @@ Given a sentence, your task is to apply coreference resolution, ellipsis resolut
 Specifically, identify and resolve any instances where pronouns or demonstratives refer to specific nouns (coreference resolution),
 fill in any missing elements implied by the context but not explicitly stated in the sentence (ellipsis resolution),
 and enhance the overall understanding of the sentence by adding necessary contextual information (contextual completion).
-When forming nodes, avoid using abstract terms and instead use proper nouns to ensure clarity and specificity. 
+When forming nodes, avoid using abstract terms and instead use proper nouns to ensure clarity and specificity.
 If the sentence expressed with first person pronouns in any language (e.g. 'I', 'my', 'me' etc.), use "{user}".
 If the sentence expressed with second person pronouns in any language (e.g. 'you', 'your', etc.), use "{ai}".
 

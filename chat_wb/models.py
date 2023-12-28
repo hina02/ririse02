@@ -80,7 +80,7 @@ class Relationships(BaseModel):
         if self.properties:
             props = ', '.join([f"{key}: '{value}'" for key, value in self.properties.items()])
             props = f"{{{props}}}"
-        return f"({self.start_node}{start_label} {{name: '{self.start_node}'}})-[r:{self.type} {props}]->({self.end_node}{end_label} {{name: '{self.end_node}'}})"
+        return f"({self.start_node}{start_label})-[r:{self.type} {props}]->({self.end_node}{end_label})"
 
 
 FIRST_PERSON_PRONOUNS = ["私", "i", "user", "me"]
@@ -225,6 +225,7 @@ class ShortMemory(BaseModel):
             ai_response=ai_response,
             triplets=retrieved_memory,
         )
+        logger.info(f"short_memory: {self.short_memory}")
         # short_memoryに追加
         self.short_memory.append(temp_memory)
 

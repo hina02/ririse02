@@ -3,7 +3,7 @@ from logging import getLogger
 from chat_wb.neo4j.memory import query_vector, get_messages, get_titles, create_and_update_title
 from chat_wb.neo4j.triplet import TripletsConverter
 from chat_wb.models import Node
-from fastapi import APIRouter
+from fastapi import APIRouter, Body
 
 
 memory_router = APIRouter()
@@ -42,5 +42,5 @@ async def store_memory_from_triplet_api(text: str):
 
 
 @memory_router.post("/create_and_update_title", tags=["memory"])
-async def create_and_update_title_api(title: str, new_title: str | None = None):
+async def create_and_update_title_api(title: str = Body(...), new_title: str | None = Body(None)):
     return await create_and_update_title(title, new_title)

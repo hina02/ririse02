@@ -1,4 +1,4 @@
-from fastapi import APIRouter, WebSocket
+from fastapi import APIRouter, WebSocket, Body
 from logging import getLogger
 import json
 import asyncio
@@ -18,12 +18,12 @@ async def websocket_endpoint(websocket: WebSocket):
     # クライアントからのJSONメッセージを待つ
     data = await websocket.receive_text()
     input_data = WebSocketInputData(**json.loads(data))
-    title = input_data.title
 
     # StreamChatClientを取得（input_dataを渡し、ここで、user_inputの更新も行う）
     client = await get_stream_chat_client(input_data)
-    messages = get_messages(title)
-    former_node_id = messages[-1].get("id") if messages else None   # 最新のメッセージのidを取得
+
+    # store_message用に、former_node_idを指定する。
+    former_node_id = client.latest_message_id
     input_data.former_node_id = former_node_id
 
     # メッセージを受信した後、generate_audioを呼び出す
@@ -36,8 +36,11 @@ async def websocket_endpoint(websocket: WebSocket):
     # 全ての処理が終了した後で、Neo4jに保存する。
     new_node_id = await store_message(
         input_data=input_data,
-        ai_response="\n".join(client.temp_memory),
+        ai_response=client.ai_response,
         user_input_entity=client.user_input_entity)
+
+    # 最新のメッセージのidを更新
+    client.latest_message_id = new_node_id
 
     # memory_turn_overし、一時的な要素をリセットする。
     client.close_chat()
@@ -52,3 +55,33 @@ async def websocket_endpoint(websocket: WebSocket):
 
     # websocketを閉じる
     await websocket.close()
+
+
+# websocketを使用しない設定
+@wb_router.post("/chat", tags=["memory"])
+async def chat_endpoint(input_data: WebSocketInputData = Body(...),):
+    # StreamChatClientを取得（input_dataを渡し、ここで、user_inputの更新も行う）
+    client = await get_stream_chat_client(input_data)
+
+    # store_message用に、former_node_idを指定する。
+    former_node_id = client.latest_message_id
+    input_data.former_node_id = former_node_id
+
+    # メッセージを受信した後、generate_audioを呼び出す
+    results = await asyncio.gather(
+        client.generate_text(),  # レスポンス、音声合成
+        client.wb_get_memory(),    # messageをベクタークエリし、関連するnode, relationshipを取得
+        client.wb_store_memory(),  # user_input_entity, short_memory取得、保存
+    )
+    response = results[0]
+
+    # 全ての処理が終了した後で、Neo4jに保存する。
+    new_node_id = await store_message(
+        input_data=input_data,
+        ai_response="\n".join(client.temp_memory),
+        user_input_entity=client.user_input_entity)
+
+    # memory_turn_overし、一時的な要素をリセットする。
+    client.close_chat()
+
+    return response
