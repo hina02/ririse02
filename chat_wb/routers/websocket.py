@@ -17,7 +17,8 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()  # 接続を受け入れる
     # クライアントからのJSONメッセージを待つ
     data = await websocket.receive_text()
-    input_data = WebSocketInputData(**json.loads(data))
+    input_data = WebSocketInputData.model_validate_json(data)
+    with_voice = input_data.with_voice
 
     # StreamChatClientを取得（input_dataを渡し、ここで、user_inputの更新も行う）
     client = await get_stream_chat_client(input_data)
@@ -26,12 +27,19 @@ async def websocket_endpoint(websocket: WebSocket):
     former_node_id = client.latest_message_id
     input_data.former_node_id = former_node_id
 
-    # メッセージを受信した後、generate_audioを呼び出す
-    await asyncio.gather(
-        client.wb_generate_audio(websocket),  # レスポンス、音声合成
-        client.wb_get_memory(websocket),    # messageをベクタークエリし、関連するnode, relationshipを取得
-        client.wb_store_memory(),  # user_input_entity, short_memory取得、保存
-    )
+    # メイン処理
+    if with_voice:
+        await asyncio.gather(
+            client.wb_generate_audio(websocket),  # レスポンス、音声合成
+            client.wb_get_memory(websocket),  # messageをベクタークエリし、関連するnode, relationshipを取得
+            client.wb_store_memory(),  # user_input_entity, short_memory取得、保存
+        )
+    else:
+        await asyncio.gather(
+            client.wb_generate_text(websocket),  # レスポンスのみ
+            client.wb_get_memory(websocket),    # messageをベクタークエリし、関連するnode, relationshipを取得
+            client.wb_store_memory(),  # user_input_entity, short_memory取得、保存
+        )
 
     # 全ての処理が終了した後で、Neo4jに保存する。
     new_node_id = await store_message(

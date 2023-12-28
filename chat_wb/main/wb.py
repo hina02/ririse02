@@ -353,10 +353,38 @@ class StreamChatClient():
                     break
                 await asyncio.sleep(0.3)
                 max_tokens = 140
-        # 生成したテキストを取得（responseを早くするため、max_tokensを小さくして繰り返す）
-        response = await self.streamchat(max_tokens)
 
-        return response
+        # response生成
+        # prompt生成
+        messages = self.create_chat_prompt()
+        logger.info(f"messages: {messages}")
+
+        # response生成
+        response = await self.client.chat.completions.create(
+            model="gpt-4-1106-preview",
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=0.7,
+            frequency_penalty=0.3,  # 繰り返しを抑制するために必須。
+            stream=True,
+        )
+        fulltext = ""
+        async for chunk in response:
+            if chunk.choices[0].delta.content is not None:
+                content = chunk.choices[0].delta.content
+                fulltext += content
+
+                # [HACK] チャンクごとに返す場合のコード
+                # accumulated_text += content
+                # if re.search(r'([\n。！？；]+|\n\n|```)', accumulated_text):
+                message = {
+                    "type": "text",
+                    "text": content,
+                }
+                await websocket.send_text(json.dumps(message))  # JSONとして送信
+        logger.info(fulltext)
+        self.ai_response = fulltext
+        return fulltext
 
 # コードブロックテキストをWebSoketで送り返す。
 async def handle_code_block(code_block_content: str, websocket: WebSocket):

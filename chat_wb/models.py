@@ -194,6 +194,7 @@ class WebSocketInputData(BaseModel):
     input_text: str
     title: str
     former_node_id: int | None = None   # node_idを渡すことで、途中のメッセージに新しいメッセージを追加することができる。使用する場合、フロントで枝分かれの表示方法の実装が必要。
+    with_voice: bool = True
 
 
 class TempMemory(BaseModel):
