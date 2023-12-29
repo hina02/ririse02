@@ -307,6 +307,7 @@ def get_message_nodes(title: str, limit: int = 7) -> list[Node]:
             """
             MATCH (t:Title {title: $title})-[:CONTAIN]->(m:Message)
             RETURN labels(t) as title_label, t.title as title_name, labels(m) as message_label, m.user_input as user_input, m.ai_response as ai_response
+            ORDER BY m.create_time DESC
             LIMIT $limit
             """,
             title=title,
@@ -335,7 +336,7 @@ def get_message_relationships(title: str, limit: int = 7) -> list[Relationships]
             """
             MATCH (n:Title {title: $title})-[r]->(m:Message)
             WITH n, r, m
-            ORDER BY r.timestamp DESC
+            ORDER BY m.create_time DESC
             LIMIT $limit
 
             MATCH (m)-[r2]->(o)

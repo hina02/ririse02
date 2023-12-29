@@ -79,6 +79,8 @@ def get_messages(title: str) -> list[dict]:
             properties["id"] = record["node_id"]
             if "embedding" in properties:
                 del properties["embedding"]
+            if "create_time" in properties:
+                properties["create_time"] = properties["create_time"].strftime("%Y-%m-%dT%H:%M:%SZ")
             nodes.append(properties)
         nodes = sorted(nodes, key=lambda x: x["create_time"])
     return nodes

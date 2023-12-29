@@ -318,7 +318,7 @@ class StreamChatClient():
     # テキスト生成から音声合成、再生までを統括する関数
     async def wb_generate_audio(self, websocket: WebSocket):
         # レスポンス作成前に、user_inputを音声合成して送信
-        # await wb_get_voice(self.user_input, websocket, narrator="Asumi Shuo")
+        await wb_get_voice(self.user_input, websocket, narrator="Asumi Shuo")
 
         # neo4jからのレスポンスを待つ
         if self.message_retrieved_memory is None:
