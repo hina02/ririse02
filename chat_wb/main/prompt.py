@@ -53,5 +53,12 @@ If the sentence expressed with second person pronouns in any language (e.g. 'you
 If len(Nodes) > 2, Relationship_types is required.
 If there is no node and relationship, output is {{Nodes: [], Relationships: []}}.
 {{Nodes: [{{"label", "name", "properties"}}],
-Relationships: [{{"start_node", "end_node", "type", "properties"}}]}}
+Relationships: [{{"start_node", "end_node", "type", "properties:dict(e.g., time etc.)"}}]}}
+"""
+
+EXTRACT_ENTITY_PROMPT = """
+Output all entities in JSON format using a single key 'Entity'.
+
+If there are no entity, output is {{'Entity': []}}.
+Output json format is {{'Entity': list(str)}}.
 """

@@ -4,7 +4,7 @@ from datetime import datetime
 from logging import getLogger
 from functools import lru_cache
 from typing import Literal
-from chat_wb.models import WebSocketInputData, Triplets, Node
+from chat_wb.models import WebSocketInputData, Triplets, Node, Relationships
 from openai_api.common import get_embedding
 
 # ロガー設定
@@ -120,7 +120,7 @@ def get_latest_messages(title: str, n: int = 7) -> list[dict] | None:
 
 
 def query_vector(query: str, label: Literal['Title', 'Message'], k: int = 3, threshold: float = 0.9, time_threshold: int = 365) -> list[dict]:
-    """インデックスを作成したラベル(Title, Message)から、ベクトルを検索する"""
+    """インデックスを作成したラベル(Title, Message)から、ベクトルを検索する。基本形。直接は使用していない。"""
     vector = get_embedding(query)
 
     with driver.session() as session:
@@ -154,64 +154,63 @@ def query_vector(query: str, label: Literal['Title', 'Message'], k: int = 3, thr
     return nodes
 
 
-async def query_messages(user_input: str, k: int = 3):
-    """user_inputを入れて、(user_input => user_input, ai_responseのセットを想定)
-        （chat historyはノイズになるので追加しない）
-        近しい過去のmessageのuser_input_entityを取り出す。
-        取り出したentityは、関連するnode、relationshipsを得るため、get_memory_from_tripletに渡す。"""
-    # vector search messages
-    messages = query_vector(user_input, label="Message", k=k)   # [TODO] 前後のMessageの取得も検討
-
-    # user_input_entityを取り出してtripletsにまとめる。
-    nodes_set = set()
-    relationships_set = set()
-
-    for message in messages:
-        user_input_entity = Triplets.model_validate_json(message.get("user_input_entity")) if message.get("user_input_entity") else None
-        if user_input_entity is not None:
-            nodes_set.update(user_input_entity.nodes)
-            relationships_set.update(user_input_entity.relationships)
-    user_input_entities = Triplets(nodes=list(nodes_set), relationships=list(relationships_set))
-
-    # convert messages to [Node]
-    message_nodes = []
-    for message in messages:
-        message.pop("user_input_entity", None)
-        name = str(message.pop("create_time", "unknown date"))   # LLMが時系列を把握しやすいように、日時情報をnameに割り当て。
-        message_nodes.append(Node(label="Message", name=name, properties=message))
-
-    return message_nodes, user_input_entities
-
-
-async def new_query_messages(user_input: str, k: int = 3):
-    # vector search messages
-    results = session.run(
+from utils.common import atimer
+@atimer
+async def query_messages(query: str, k: int = 3, threshold: float = 0.9, time_threshold: int = 365) -> Triplets:
+    """ベクトル検索でメッセージを取得し、深さ2までのノードを取得し、関連するEntityを取得する。
+        Message → Entity → Entityなので、一方向のみの探索で良い。
+        期せずして、Message → Message → Entity も取得している。"""
+    vector = get_embedding(query)
+    with driver.session() as session:
+        results = session.run(
                 """
-                CALL db.index.vector.queryNodes($label, $k, $vector)
+                CALL db.index.vector.queryNodes('Message', $k, $vector)
                 YIELD node, score
                 WHERE score > $threshold AND node.create_time > datetime() - duration({days: $time_threshold})
-                RETURN node AS properties, score
+                WITH node AS messageNode, score
                 ORDER BY score DESC
-                
-                WITH db.index.vector.queryNodes($label, $k, $vector) AS results
-                UNWIND results AS result
-                WITH result.node AS messageNode, result.score AS score
-                WHERE score > $threshold AND messageNode.create_time > datetime() - duration({days: $time_threshold})
-                MATCH (messageNode)-[r]->(relatedNode)
-                WITH messageNode, r, relatedNode, score
-                LIMIT 2
-                RETURN messageNode AS properties, collect({relation: r, node: relatedNode}) AS relations
+                LIMIT $k
+
+                MATCH path = (messageNode)-[r*1..2]->(end)
+                UNWIND relationships(path) as rel
+
+                WITH rel
+                WHERE type(rel) <> 'CONTAIN'
+
+                RETURN
+                    type(rel) as relationship_type, properties(rel) as properties,
+                    COALESCE(startNode(rel).name, startNode(rel).user_input) as start_node_name, labels(startNode(rel))[0] as start_node_label, properties(startNode(rel)) as start_node_properties,
+                    COALESCE(endNode(rel).name, endNode(rel).user_input) as end_node_name, labels(endNode(rel))[0] as end_node_label, properties(endNode(rel)) as end_node_properties
                 """,
-                label=label,
                 k=k,
                 vector=vector,
                 threshold=threshold,
                 time_threshold=time_threshold,
             )
 
+        nodes = set()
+        relationships = set()
+        for record in results:
+            # Messageノードを除去
+            if record["start_node_label"] == "Message" or record["end_node_label"] == "Message":
+                continue
+            # ノード、リレーションシップを作成
+            start_node = Node(label=record["start_node_label"], name=record["start_node_name"], properties=record["start_node_properties"])
+            end_node = Node(label=record["end_node_label"], name=record["end_node_name"], properties=record["end_node_properties"])
+            nodes.add(start_node)
+            nodes.add(end_node)
+            relationships.add(Relationships(
+                type=record["relationship_type"],
+                properties=record["properties"],
+                start_node=start_node.name,
+                end_node=end_node.name,
+                start_node_label=start_node.label,
+                end_node_label=end_node.label,
+            ))
+        logger.info(f"nodes: {len(nodes)}, relationships: {len(relationships)}")
 
-
-
+        triplets = Triplets(nodes=list(nodes), relationships=list(relationships))
+        return triplets
 
 
 async def create_and_update_title(title: str, new_title: str | None = None):

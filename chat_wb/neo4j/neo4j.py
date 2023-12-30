@@ -1,7 +1,7 @@
 from logging import getLogger
 import os
 from typing import Any
-from chat_wb.models import Node, Relationships
+from chat_wb.models import Node, Relationships, Triplets
 from neo4j import GraphDatabase
 
 # ロガー設定
@@ -368,14 +368,16 @@ def get_message_relationships(title: str, limit: int = 7) -> list[Relationships]
 # 指定ノードの情報
 # nameがnameに一致、或いはname_variationに含まれるノードのプロパティを取得する
 # Personの場合は、name_variationsを併せて検索する。
-async def get_node(label: str, name: str) -> list[Node] | None:
+async def get_node(label: str | None, name: str) -> list[Node] | None:
+    label_clause = f":{label}" if label else ""
     with driver.session() as session:
         result = session.run(
-            f"MATCH (n:{label}) WHERE $name IN n.name_variations OR n.name = $name RETURN properties(n) as properties",
+            f"MATCH (n{label_clause}) WHERE $name IN n.name_variations OR n.name = $name RETURN labels(n)[0] as label, properties(n) as properties",
             name=name,
         )
         nodes = []
         for record in result:
+            label = record["label"]
             properties = record["properties"]
             properties.pop("name", None)  # 'name'をpropertiesから除去
             node = Node(label=label, name=name, properties=record["properties"])
@@ -383,36 +385,48 @@ async def get_node(label: str, name: str) -> list[Node] | None:
         logger.debug(f"nodes: {nodes}")
         return nodes if nodes else None
 
-
-# 指定した深さまでの双方向リレーションシップを取得する（Message,Titleを除く）。
-async def get_node_relationships(label: str, name: str, depth: int = 1) -> list[Relationships] | None:
+from utils.common import atimer
+# ノードが増えてレスポンスが遅くなるようなら、一つのnameを受け取るクエリの非同期処理を検討する。
+@atimer
+async def get_node_relationships(names: list[str], depth: int = 1) -> Triplets | None:
+    """指定した深さまでの双方向リレーションシップを取得する（Message,Titleを除く）。複数nameを受け取る。"""
     with driver.session() as session:
         results = session.run(
             f"""
-            MATCH (start:{label})
-            WHERE $name IN start.name_variations OR start.name = $name
+            MATCH (start)
+            WHERE start.name IN $names OR ANY(name_variation IN start.name_variation WHERE name_variation IN $names)
             MATCH path = (start)-[r*1..{depth}]-(end)
             WHERE NONE(node IN nodes(path) WHERE 'Message' IN labels(node) OR 'Title' IN labels(node))
             UNWIND r as rel
             RETURN type(rel) as relationship_type, properties(rel) as properties,
-                startNode(rel).name as start_node_name, labels(startNode(rel))[0] as start_node_label,
-                endNode(rel).name as end_node_name, labels(endNode(rel))[0] as end_node_label
+                startNode(rel).name as start_node_name, labels(startNode(rel))[0] as start_node_label, properties(startNode(rel)) as start_node_properties,
+                endNode(rel).name as end_node_name, labels(endNode(rel))[0] as end_node_label, properties(endNode(rel)) as end_node_properties
             """,
-            name=name,
+            names=names,
             depth=depth,
         )
+        nodes = set()
         relationships = []
         for record in results:
+            start_node = Node(label=record["start_node_label"], name=record["start_node_name"], properties=record["start_node_properties"])
+            end_node = Node(label=record["end_node_label"], name=record["end_node_name"], properties=record["end_node_properties"])
+            nodes.add(start_node)
+            nodes.add(end_node)
             relationships.append(Relationships(
                 type=record["relationship_type"],
                 properties=record["properties"],
-                start_node_label=record["start_node_label"],
                 start_node=record["start_node_name"],
-                end_node_label=record["end_node_label"],
                 end_node=record["end_node_name"],
+                start_node_label=record["start_node_label"],
+                end_node_label=record["end_node_label"],
             ))
-        logger.debug(f"relationships: {relationships}")
-    return relationships if relationships else None
+        if nodes and relationships:
+            triplets = Triplets(nodes=list(nodes), relationships=relationships)
+        else:
+            triplets = None
+        logger.debug(f"triplets: {triplets}")
+
+    return triplets
 
 
 # ノードとノードの間にあるすべての双方向のリレーションとプロパティ（content）を得る。

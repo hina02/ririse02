@@ -1,6 +1,5 @@
 import asyncio
 import json
-from datetime import datetime
 from logging import getLogger
 import openai
 from openai import AsyncOpenAI
@@ -9,6 +8,7 @@ from chat_wb.main.prompt import (
     CODE_SUMMARIZER_PROMPT,
     DOCS_SUMMARIZER_PROMPT,
     EXTRACT_TRIPLET_PROMPT,
+    EXTRACT_ENTITY_PROMPT,
     TEXT_TRIAGER_PROMPT,
 )
 from chat_wb.neo4j.neo4j import (
@@ -116,7 +116,7 @@ class TripletsConverter():
         """
         # prompt
         system_prompt = EXTRACT_TRIPLET_PROMPT.format(user=self.user_name, ai=self.ai_name)
-        user_prompt = f"{text}"
+        user_prompt = text
         messages = ChatPrompt(
             system_message=system_prompt,
             user_message=user_prompt,
@@ -129,7 +129,6 @@ class TripletsConverter():
             temperature=0.0,
             max_tokens=2048,
             response_format={"type": "json_object"},
-            seed=0,  # シード値固定した方が安定するかもしれない。
         )
         return response.choices[0].message.content
 
@@ -157,11 +156,38 @@ class TripletsConverter():
             triplets = None
         return triplets
 
+    @atimer
+    async def extract_entites(self, text: str) -> list[str] | None:
+        """user_inputから、entityを抽出する。0.5～1.5秒程度。"""
+        # prompt
+        system_prompt = EXTRACT_ENTITY_PROMPT
+        user_prompt = text
+        messages = ChatPrompt(
+            system_message=system_prompt,
+            user_message=user_prompt,
+        ).create_messages()
+
+        # response生成
+        response = await self.client.chat.completions.create(
+            model="gpt-3.5-turbo-1106",
+            messages=messages,
+            temperature=0.0,
+            max_tokens=256,
+            response_format={"type": "json_object"},
+        )
+        try:
+            entity = json.loads(response.choices[0].message.content).get("Entity")
+            logger.info(entity)
+            return entity
+        except json.JSONDecodeError:
+            logger.error("Invalid JSON response")
+            return None
+
+    # [HACK] tripletsを渡しているが、nodeしか利用していない。list[Node]で十分。
     @staticmethod
     async def get_memory_from_triplet(triplets: Triplets, AI: str, user: str, depth: int = 1) -> Triplets:
         """user_input_entityに基づいて、Neo4jへのクエリレスポンスを取得 1回で1秒程度
             Character Settingと情報が重複するため、AI, Userに相当するnodeを事前に除外して実行する。"""
-        start_time = datetime.now()
         tasks = []
         # triplets.nodesから、name = AI, Userのnodeを除外する。
         nodes = [node for node in triplets.nodes if node.name not in [AI, user]]
@@ -183,8 +209,6 @@ class TripletsConverter():
         logger.debug(f"nodes: {nodes}")
         logger.debug(f"relations: {relationships}")
         query_results = Triplets(nodes=nodes, relationships=relationships)
-        end_time = datetime.now()
-        logger.info(f"get_memory_from_triplet: {end_time - start_time}")
 
         return query_results
 

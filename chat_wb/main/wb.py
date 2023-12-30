@@ -12,9 +12,9 @@ from openai import AsyncOpenAI
 from openai_api.models import ChatPrompt
 from chat_wb.voice.text2voice import playVoicePeak
 from chat_wb.neo4j.triplet import TripletsConverter
-from chat_wb.neo4j.neo4j import get_node, get_node_relationships_between
+from chat_wb.neo4j.neo4j import get_node, get_node_relationships_between, get_node_relationships
 from chat_wb.neo4j.memory import query_messages, get_latest_messages
-from chat_wb.models import Triplets, WebSocketInputData, ShortMemory, TempMemory
+from chat_wb.models import Triplets, WebSocketInputData, ShortMemory, TempMemory, Node, Relationships, remove_suffix
 
 logger = getLogger(__name__)
 
@@ -54,6 +54,7 @@ class StreamChatClient():
         self.location = "Yokohama"      # [TODO] User node properties and AI node properties
         self.user = input_data.user
         self.AI = input_data.AI
+        self.character_settings: Triplets
         self.title = input_data.title
         self.latest_message_id: int | None = None
         self.client = AsyncOpenAI()
@@ -61,7 +62,6 @@ class StreamChatClient():
         self.user_input_type: str | None = None  # 不要なTripletsを保存しないための分類（code, documents, chat, question）
         self.user_input_entity: Triplets | None = None  # ユーザー入力から抽出したTriplets
         self.ai_response: str | None = None   # ai_responseの一時保存
-        self.message_retrieved_memory: Triplets | None = None    # Messageに基づいて、neo4jから取得した一時的な情報
         self.retrieved_memory: Triplets | None = None  # neo4jから取得した情報の一時保存
         self.short_memory: ShortMemory  # チャットとlong_memoryの履歴、memoryを最大7個まで格納する
         self.short_memory_limit = 7     # [TODO] User Setting
@@ -70,6 +70,7 @@ class StreamChatClient():
 
     async def init(self):
         # load character_settings
+        # user, AIのノード、両者間のリレーションシップを取得する。
         label = "Person"
         AI, user, relationships = await asyncio.gather(
             get_node(label, self.AI),
@@ -78,7 +79,7 @@ class StreamChatClient():
         )
         nodes = [node for node in [AI[0], user[0]] if node is not None]
         relationships = relationships if relationships is not None else []
-        self.character_settings = Triplets(nodes=nodes, relationships=relationships).model_dump_json()
+        self.character_settings = Triplets(nodes=nodes, relationships=relationships)
 
         # load short_memory
         short_memory = []
@@ -100,13 +101,13 @@ class StreamChatClient():
     def set_user_input(self, user_input: str):
         self.user_input = user_input
 
+# Chat
     def create_chat_prompt(self):
         # system_prompt
         system_prompt = """Output line in Japanese without character name.
                         Don't reveal hidden information.
                         """
-        # user, AIのノード、両者間のリレーションシップを取得してsystem_promptに設定する。
-        character_settings_prompt = self.character_settings
+        character_settings_prompt = self.character_settings.model_dump_json()
 
         character_prompt = f"""
         You are to simulate the game character that the young girl named {self.AI}, that have conversation with the player named {self.user}.
@@ -123,20 +124,15 @@ class StreamChatClient():
         system_prompt += character_prompt
 
         # short_memory, retrieved_memoryの重複を排除して、memory_infoに追加する。
-        if self.message_retrieved_memory and self.short_memory.triplets:
-
-            combined_nodes = self.message_retrieved_memory.nodes + self.short_memory.triplets.nodes
-            combined_relationships = self.message_retrieved_memory.relationships + self.short_memory.triplets.relationships
-            unique_nodes = list(set(combined_nodes))
-            unique_relationships = list(set(combined_relationships))
-            self.message_retrieved_memory.nodes = unique_nodes
-            self.message_retrieved_memory.relationships = unique_relationships
+        if self.retrieved_memory and self.short_memory.triplets:
+            self.retrieved_memory.nodes = list(set(self.retrieved_memory.nodes + self.short_memory.triplets.nodes))
+            self.retrieved_memory.relationships = list(set(self.retrieved_memory.relationships + self.short_memory.triplets.relationships))
 
         memory_info = ""
         if self.short_memory.triplets:
             memory_info += self.short_memory.triplets.to_cypher_json()
-        if self.message_retrieved_memory:
-            memory_info += self.message_retrieved_memory.to_cypher_json()
+        if self.retrieved_memory:
+            memory_info += self.retrieved_memory.to_cypher_json()
         # memory_infoをself.short_memory_input_sizeを上限にする。
         if len(memory_info) > self.short_memory_input_size:
             memory_info = memory_info[-self.short_memory_input_size:]
@@ -223,6 +219,18 @@ class StreamChatClient():
         return full_text
 
     def close_chat(self):
+        # AI, Userの情報がある場合、Character_settingsに反映する。
+        # self.chatacter_settingsのうち、self.retrieved_memory.nodesと一致するものを更新する。
+        self.character_settings.nodes = [
+            next((rm_node for rm_node in self.retrieved_memory.nodes if rm_node.name == node.name and rm_node.label == node.label), node)
+            for node in self.character_settings.nodes
+        ]
+        # self.retrieved_memoryからは、self.character_settingsを除外する。
+        self.retrieved_memory.nodes = [
+            rm_node for rm_node in self.retrieved_memory.nodes
+            if not any(node.name == rm_node.name and node.label == rm_node.label for node in self.character_settings.nodes)
+        ]
+
         # user_input, ai_response, retrieved_memoryをまとめて、short_memory classに格納する。
         self.short_memory.memory_turn_over(
             user_input=self.user_input,
@@ -230,11 +238,11 @@ class StreamChatClient():
             retrieved_memory=self.retrieved_memory
         )
 
-        # user_input_entity、temp_memory、retrieved_memory、message_retrieved_memoryをリセット
+        # user_input_entity、temp_memory、retrieved_memory、retrieved_memoryをリセット
         self.user_input_entity = None
         self.temp_memory = None
         self.retrieved_memory = None
-        self.message_retrieved_memory = None
+        self.retrieved_memory = None
         logger.debug(f"client title: {self.title}")
         logger.debug(f"short_memory: {self.short_memory.short_memory}")
 
@@ -255,39 +263,50 @@ class StreamChatClient():
                 sentences.append(sentence)
         return sentences
 
+# Get memory
     async def wb_get_memory(self, websocket: WebSocket | None = None):
-        """user_inputに関連するmessageをベクトル検索し、関連するnode, relationshipを取得する。
-        messages: Message Node, activated_memory: Related Entity"""
+        """①user_inputに関連するmessageをベクトル検索し、関連するnode, relationshipを取得する。
+        ②user_inputのentityを取得し、関連するnode, relationshipを取得する。"""
         start_time = datetime.now()
         logger.info(f"start_wb_get_memory: {start_time}")
-        # 過去のMessageと、entityを取得する。
-        message_nodes, entity = await query_messages(self.user_input)
-        interval_time = datetime.now()
-        logger.info(f"query_messages: {interval_time - start_time}")
-        # entityに関連するnode, relationshipを取り出す。
-        message_retrieved_memory = await TripletsConverter.get_memory_from_triplet(
-            triplets=entity,
-            AI=self.AI,
-            user=self.user,
-            depth=self.short_memory_depth)
+
+        message_retrieved_memory, entity_retrieved_memory = await asyncio.gather(
+            query_messages(self.user_input),
+            self._retrieve_entity(self.user_input)
+        )
+        logger.info(f"message_retrieved_memory: {len(message_retrieved_memory.nodes)} nodes, {len(message_retrieved_memory.relationships)} relationships" if message_retrieved_memory else "message_retrieved_memory: None")
+        logger.info(f"entity_retrieved_memory: {len(entity_retrieved_memory.nodes)} nodes, {len(entity_retrieved_memory.relationships)} relationships" if entity_retrieved_memory else "entity_retrieved_memory: None")    
+
+        nodes = set()
+        relationships = set()
+        if message_retrieved_memory:
+            nodes = set(message_retrieved_memory.nodes)
+            relationships = set(message_retrieved_memory.relationships)
+        if entity_retrieved_memory:
+            nodes = set(entity_retrieved_memory.nodes)
+            relationships = set(entity_retrieved_memory.relationships)
+        self.retrieved_memory = Triplets(nodes=list(nodes), relationships=list(relationships))
+        logger.info(f"retrieved_memory: {len(self.retrieved_memory.nodes)} nodes, {len(self.retrieved_memory.relationships)} relationships")
+
         end_time = datetime.now()
         logger.info(f"get_memory_from_triplet: {end_time - start_time}")
-
-        logger.info(f"message_retrieved_memory: {len(message_retrieved_memory.nodes)} nodes, {len(message_retrieved_memory.relationships)} relationships")
-        self.message_retrieved_memory = message_retrieved_memory
-
         # tripletsとMessage_nodeを別々のデータとしてwebsocketに送信
-        if message_retrieved_memory:
-            # websocket接続している場合、message_retrieved_memoryを送信する。
+        if self.retrieved_memory:
+            # websocket接続している場合、retrieved_memoryを送信する。
             if websocket:
-                messages = Triplets(nodes=message_nodes)    # josn変換のため、Tripletsに格納
-                message = {"type": "messages",
-                           "messages": messages.model_dump_json(),  # message nodes
-                           "message_retrieved_memory":  message_retrieved_memory.model_dump_json()}   # related entity
+                message = {"type": "retrieved_memory",
+                           "retrieved_memory":  self.retrieved_memory.model_dump_json()}   # related entity
                 await websocket.send_text(json.dumps(message))
 
+    async def _retrieve_entity(self, text: str):
+        """user_inputから、深さn(1)までのentityを抽出する。合計3秒程度。"""
+        user_input_entity = await TripletsConverter().extract_entites(text)
+        entities = [remove_suffix(entity) for entity in user_input_entity]
+        return await get_node_relationships(names=entities)
+
+# Store memory
     async def wb_store_memory(self):
-        """user_input_entityを抽出し、Neo4jに保存する。また、retrieve memoryする。"""
+        """user_input_entityを抽出し、Neo4jに保存する。"""
     # user_input_entity
         converter = TripletsConverter(client=self.client, user_name=self.user, ai_name=self.AI)
         # triage text
@@ -298,32 +317,22 @@ class StreamChatClient():
             return None
         # websocket終了時に実行するstore_messageに渡すため、selfに格納。
         self.user_input_entity = triplets
-
-    # retrieve memory
-        # Neo4jから、user_input_entityに関連したnode,relationshipsを取得し、short_memoryに格納
-        result = await converter.get_memory_from_triplet(
-            triplets=triplets,
-            AI=self.AI,
-            user=self.user,
-            depth=self.short_memory_depth)
-        if result is None:
-            return None
-        logger.info(f"retrieved_memory: {len(result.nodes)} nodes, {len(result.relationships)} relationships")
-        self.retrieved_memory = result
+        logger.info(f"user_input_entity: {triplets.to_cypher_json()}")
 
     # Store Triplets in Neo4j
         if converter.user_input_type != "question" and triplets:
             await converter.store_memory_from_triplet(triplets)
 
-    # テキスト生成から音声合成、再生までを統括する関数
+# Generate response
     async def wb_generate_audio(self, websocket: WebSocket):
+        """テキスト生成から音声合成、再生までを統括する関数"""
         # レスポンス作成前に、user_inputを音声合成して送信
         await wb_get_voice(self.user_input, websocket, narrator="Asumi Shuo")
 
         # neo4jからのレスポンスを待つ
-        if self.message_retrieved_memory is None:
+        if self.retrieved_memory is None:
             for _ in range(10):  # 通常、1秒以内に取得される。
-                if self.message_retrieved_memory is not None:
+                if self.retrieved_memory is not None:
                     break
                 await asyncio.sleep(0.3)
 
@@ -332,24 +341,10 @@ class StreamChatClient():
         self.ai_response = await self.streamchat(max_tokens, websocket)
 
     # テキスト生成だけを行う関数
-    async def generate_text(self):
-        if self.message_retrieved_memory is None:
-            for _ in range(10):  # 通常、1秒以内に取得される。
-                if self.message_retrieved_memory is not None:
-                    break
-                await asyncio.sleep(0.3)
-
-        max_tokens = 256
-        # 生成したテキストを取得（responseを早くするため、max_tokensを小さくして繰り返す）
-        response = await self.streamchat(max_tokens)
-
-        return response
-
-    # テキスト生成だけを行う関数
     async def wb_generate_text(self, websocket: WebSocket):
-        if self.message_retrieved_memory is None:
+        if self.retrieved_memory is None:
             for _ in range(10):
-                if self.message_retrieved_memory is not None:
+                if self.retrieved_memory is not None:
                     break
                 await asyncio.sleep(0.3)
                 max_tokens = 140
@@ -385,6 +380,7 @@ class StreamChatClient():
         logger.info(fulltext)
         self.ai_response = fulltext
         return fulltext
+
 
 # コードブロックテキストをWebSoketで送り返す。
 async def handle_code_block(code_block_content: str, websocket: WebSocket):
