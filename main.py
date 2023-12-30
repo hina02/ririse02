@@ -15,6 +15,7 @@ from chat_wb.routers.websocket import wb_router
 from chat_wb.routers.neo4j import neo4j_router
 from chat_wb.routers.memory import memory_router
 from watchdog.observers import Observer
+from chat_wb.neo4j.triplet import TripletsConverter
 
 # ロガーをuvicornのロガーに設定する
 import logging
@@ -92,15 +93,12 @@ def read_root():
     </html>
     """
 
-# test endpoint
-from chat_wb.neo4j.triplet import TripletsConverter
-from chat_wb.neo4j.neo4j import get_node_relationships
-from chat_wb.neo4j.memory import query_messages
-from chat_wb.models import remove_suffix
 
+# test endpoint
 @app.get("/conference")
 async def conference_resolution_chain(text: str):
     return await TripletsConverter().coference_resolution(text)
+
 
 @app.get("/triplets")
 async def triplets(text: str):
@@ -108,21 +106,9 @@ async def triplets(text: str):
     logger.info(result)
     return result
 
+
 @app.get("/run_sequences")
 async def run_sequences_api(text: str):
     converter = TripletsConverter()
     await converter.triage_text(text)
     return await converter.run_sequences(text)
-
-@app.get("/extract_entities")
-async def extract_entities_api(text: str):
-    """ラベル無しでnameのみから、一次リレーションまでとノードプロパティを得る。"""
-    user_input_entity = await TripletsConverter().extract_entites(text)
-    entities = []
-    for entity in user_input_entity:
-        entities.append(remove_suffix(entity))
-    return await get_node_relationships(names=entities)
-
-@app.get("/query_messages")
-async def query_messages_api(query: str):
-    return await query_messages(query)

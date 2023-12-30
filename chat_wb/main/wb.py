@@ -83,18 +83,18 @@ class StreamChatClient():
 
         # load short_memory
         short_memory = []
-        messages = get_latest_messages(self.title, n=self.short_memory_limit)
+        messages, latest_message_id = get_latest_messages(self.title, n=self.short_memory_limit)
         if messages:
             for message in reversed(messages):
                 short_memory.append(
                     TempMemory(
                         user_input=message["user_input"],
                         ai_response=message["ai_response"],
-                        triplets=json.loads(message["user_input_entity"]) if message["user_input_entity"] else None,
-                        time=message["create_time"].to_native()
+                        triplets=Triplets().model_validate_json(message.get("user_input_entity")) if message.get("user_input_entity") else None,
+                        time=message["create_time"]
                     )
                 )
-        self.latest_message_id = messages[0].id if messages else None
+        self.latest_message_id = latest_message_id
         self.short_memory = ShortMemory(short_memory=short_memory, limit=self.short_memory_limit)
         self.short_memory.convert_to_tripltets()
 
@@ -289,7 +289,7 @@ class StreamChatClient():
         logger.info(f"retrieved_memory: {len(self.retrieved_memory.nodes)} nodes, {len(self.retrieved_memory.relationships)} relationships")
 
         end_time = datetime.now()
-        logger.info(f"get_memory_from_triplet: {end_time - start_time}")
+        logger.info(f"Time: {end_time - start_time}")
         # tripletsとMessage_nodeを別々のデータとしてwebsocketに送信
         if self.retrieved_memory:
             # websocket接続している場合、retrieved_memoryを送信する。

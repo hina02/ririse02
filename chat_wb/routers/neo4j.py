@@ -12,8 +12,6 @@ from chat_wb.neo4j.neo4j import (
     get_node_relationships,
     get_all_nodes,
     get_all_relationships,
-    get_message_nodes,
-    get_message_relationships,
     integrate_nodes,
     delete_node,
     create_update_node
@@ -63,21 +61,6 @@ def get_all_node_names_api():
 def get_all_relationships_api():
     """すべてのノードのラベルと名前をリストとして取得する"""
     relationships = get_all_relationships()
-    return relationships
-
-
-# Get messages
-@neo4j_router.get("/message_nodes/{title}", tags=["label"])
-def get_message_nodes_api(title: str):
-    """すべてのtitle, messageのラベルと名前をリストとして取得する"""
-    nodes = get_message_nodes(title)
-    return nodes
-
-
-@neo4j_router.get("/message_relationships/{title}", tags=["label"])
-def get_message_relationships_api(title: str):
-    """すべてのtitle,message起点のリレーションシップと名前をリストとして取得する"""
-    relationships = get_message_relationships(title)
     return relationships
 
 

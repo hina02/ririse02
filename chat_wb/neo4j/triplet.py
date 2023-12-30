@@ -183,35 +183,6 @@ class TripletsConverter():
             logger.error("Invalid JSON response")
             return None
 
-    # [HACK] tripletsを渡しているが、nodeしか利用していない。list[Node]で十分。
-    @staticmethod
-    async def get_memory_from_triplet(triplets: Triplets, AI: str, user: str, depth: int = 1) -> Triplets:
-        """user_input_entityに基づいて、Neo4jへのクエリレスポンスを取得 1回で1秒程度
-            Character Settingと情報が重複するため、AI, Userに相当するnodeを事前に除外して実行する。"""
-        tasks = []
-        # triplets.nodesから、name = AI, Userのnodeを除外する。
-        nodes = [node for node in triplets.nodes if node.name not in [AI, user]]
-        # nodeの取得
-        for node in triplets.nodes:
-            tasks.append(get_node(node.label, node.name))
-            # nodeが持つすべてのrealtion(Messageを除く)を取得（depth指定でさらに深く探索）
-            tasks.append(get_node_relationships(node.label, node.name, depth))
-
-        responses = await asyncio.gather(*tasks)
-        # 結果を、nodesとrelationsに整理する。
-        nodes = []
-        relationships = []
-        for response in responses:
-            if response and isinstance(response[0], Node):
-                nodes.extend(response)
-            elif response and isinstance(response[0], Relationships):
-                relationships.extend(response)
-        logger.debug(f"nodes: {nodes}")
-        logger.debug(f"relations: {relationships}")
-        query_results = Triplets(nodes=nodes, relationships=relationships)
-
-        return query_results
-
     @staticmethod
     async def store_memory_from_triplet(triplets: Triplets):
         """user_input_entityに基づいて、Neo4jにノード、リレーションシップを保存"""

@@ -6,6 +6,7 @@ from functools import lru_cache
 from typing import Literal
 from chat_wb.models import WebSocketInputData, Triplets, Node, Relationships
 from openai_api.common import get_embedding
+from utils.common import atimer
 
 # ロガー設定
 logger = getLogger(__name__)
@@ -18,6 +19,7 @@ password = os.environ["NEO4J_PASSWORD"]
 driver = GraphDatabase.driver(uri, auth=(username, password))
 
 
+# Vector Index
 def show_index() -> list[str]:
     """NEO4jのインデックスを確認して、インデックス名をリストで返す"""
     with driver.session() as session:
@@ -63,6 +65,7 @@ def check_index() -> list[str]:
 NEO4J_INDEX = check_index()
 
 
+# Get Titles, Messages
 def get_messages(title: str) -> list[dict]:
     """タイトルを指定して、メッセージを取得する"""
     with driver.session() as session:
@@ -80,7 +83,7 @@ def get_messages(title: str) -> list[dict]:
             if "embedding" in properties:
                 del properties["embedding"]
             if "create_time" in properties:
-                properties["create_time"] = properties["create_time"].strftime("%Y-%m-%dT%H:%M:%SZ")
+                properties["create_time"] = properties["create_time"].to_native()   # neo4jのdatetimeをpythonのdatetimeに変換
             nodes.append(properties)
         nodes = sorted(nodes, key=lambda x: x["create_time"])
     return nodes
@@ -102,23 +105,76 @@ def get_titles() -> list[str]:
     return nodes
 
 
-def get_latest_messages(title: str, n: int = 7) -> list[dict] | None:
+def get_latest_message_relationships(title: str, limit: int = 7) -> list[Relationships]:
+    "Title → Message → Entity のリレーションシップを取得する"
+    relationships = []
+
+    with driver.session() as session:
+        result = session.run(
+            """
+            MATCH (n:Title {title: $title})-[r]->(m:Message)
+            WITH n, r, m
+            ORDER BY m.create_time DESC
+            LIMIT $limit
+
+            MATCH (m)-[r2]->(o)
+            RETURN
+                n.title as start_node_title,
+                type(r) as relationship_type_to_message,
+                m.user_input as message_content,
+
+                m.user_input as start_node_message,
+                type(r2) as relationship_type_from_message,
+                CASE labels(o)[0]
+                    WHEN 'Message' THEN o.user_input
+                    ELSE o.name
+                END as end_node_from_message
+            """,
+            title=title,
+            limit=limit
+        )
+        relationships = []
+        for record in result:
+            # TitleからMessageへのリレーションシップ
+            relationships.append(Relationships(type=record["relationship_type_to_message"], start_node=record["start_node_title"], end_node=record["message_content"], properties=None, start_node_label=None, end_node_label=None))
+            # Messageから伸びるリレーションシップ
+            relationships.append(Relationships(type=record["relationship_type_from_message"], start_node=record["start_node_message"], end_node=record["end_node_from_message"], properties=None, start_node_label=None, end_node_label=None))
+
+    return relationships
+
+
+def get_latest_messages(title: str, n: int = 7):
     """最新のメッセージを取得する"""
     with driver.session() as session:
         result = session.run(
             """
             MATCH (t:Title {title: $title})-[:CONTAIN]->(m:Message)
-            RETURN m
+            WITH m
             ORDER BY m.create_time DESC
             LIMIT $n
+            RETURN properties(m) AS properties, id(m) AS node_id
             """,
             title=title,
             n=n
         )
-        messages = [record["m"] for record in result]
-        return messages
+        messages = []
+        latest_node_id: int = None
+        # ベクトルデータを除去し、create_timeをdatetimeに変換
+        for record in result:
+            message = record["properties"]
+            message.pop("embedding", None)
+            if "create_time" in message:
+                message["create_time"] = message["create_time"].to_native()
+            messages.append(message)
+
+            # latest_node_idを取得
+            if latest_node_id is None:
+                latest_node_id = record["node_id"]
+
+        return messages, latest_node_id
 
 
+# Query vector index
 def query_vector(query: str, label: Literal['Title', 'Message'], k: int = 3, threshold: float = 0.9, time_threshold: int = 365) -> list[dict]:
     """インデックスを作成したラベル(Title, Message)から、ベクトルを検索する。基本形。直接は使用していない。"""
     vector = get_embedding(query)
@@ -146,7 +202,7 @@ def query_vector(query: str, label: Literal['Title', 'Message'], k: int = 3, thr
                 del properties["embedding"]
             # create_time, scoreの値を簡略化
             if "create_time" in properties:
-                properties["create_time"] = properties["create_time"].strftime("%Y-%m-%dT%H:%M:%SZ")
+                properties["create_time"] = properties["create_time"].to_native()   # neo4jのdatetimeをpythonのdatetimeに変換
             score = round(record["score"], 3)
             properties["score"] = score
             nodes.append(properties)
@@ -154,7 +210,6 @@ def query_vector(query: str, label: Literal['Title', 'Message'], k: int = 3, thr
     return nodes
 
 
-from utils.common import atimer
 @atimer
 async def query_messages(query: str, k: int = 3, threshold: float = 0.9, time_threshold: int = 365) -> Triplets:
     """ベクトル検索でメッセージを取得し、深さ2までのノードを取得し、関連するEntityを取得する。
@@ -213,6 +268,7 @@ async def query_messages(query: str, k: int = 3, threshold: float = 0.9, time_th
         return triplets
 
 
+# Store Title and Messages
 async def create_and_update_title(title: str, new_title: str | None = None):
     """Titleノードを作成、更新する"""
     # title名でベクトル作成
@@ -240,7 +296,6 @@ async def create_and_update_title(title: str, new_title: str | None = None):
         return True
 
 
-# [OPTIMIZE] user_input_entityにrelationship情報を保存するのは冗長かもしれない。
 async def store_message(
     input_data: WebSocketInputData,
     ai_response: str,
@@ -316,24 +371,20 @@ async def store_message(
             )
             logger.info(f"Message Node Relation created. id: {new_node_id}")
 
-        # user_input_entityへのリレーションを作成
-        # 情報をretrieveしやすいように、create_time, propertiesを保存する。
+        # user_input_entityへのリレーションを作成　今回のMessageで更新対象となったpropertyを保存する。
         if user_input_entity is not None:
             for node in user_input_entity.nodes:
                 properties = node.properties if node.properties is not None else {}
-                properties["create_time"] = create_time
                 session.run(
                     f"""
                         MATCH (b) WHERE id(b) = $new_node_id
                         MATCH (d:`{node.label}` {{name: $name}})
                         CREATE (b)-[r:CONTAIN]->(d)
                         SET r = $props
-                        SET r.create_time = datetime($create_time)
                     """,
                     name=node.name,
                     new_node_id=new_node_id,
                     props=properties,
-                    create_time=create_time,
                 )
 
     return new_node_id
