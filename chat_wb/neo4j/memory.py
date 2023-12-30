@@ -388,3 +388,44 @@ async def store_message(
                 )
 
     return new_node_id
+
+
+async def pursue_node_update_history(label: str, name: str):
+    """指定したentityから、node <- [:CONTAIN] - MessageのMessageリストを取得する
+    さらに、リレーションシップのプロパティは、その時のノードのプロパティを含むので、
+    フィルタリングすることで、ノードの更新履歴を取得することができる。"""
+    with driver.session() as session:
+        results = session.run(
+            f"""
+            MATCH (a:`{label}` {{name: $name}})<-[r:CONTAIN]-(b:Message)
+            RETURN properties(b) as message_properties,
+                type(r) as relationship_type,
+                startNode(r).user_input as start_node_name,
+                endNode(r).name as end_node_name,
+                properties(r) as properties
+            """,
+            name=name,
+        )
+
+        nodes = []
+        relationships = []
+        for record in results:
+            # Message Node
+            properties = dict(record["message_properties"])
+            if "embedding" in properties:
+                del properties["embedding"]
+            if "create_time" in properties:
+                properties["create_time"] = properties["create_time"].to_native()   # neo4jのdatetimeをpythonのdatetimeに変換
+            nodes.append(Node(label="Message", name=properties["user_input"], properties=properties))
+
+            # Relationship
+            relationships.append(Relationships(
+                type=record["relationship_type"],
+                start_node=record["start_node_name"],
+                end_node=record["end_node_name"],
+                properties=record["properties"],
+                start_node_label="Message",
+                end_node_label=label,
+            ))
+
+    return Triplets(nodes=nodes, relationships=relationships)

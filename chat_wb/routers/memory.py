@@ -1,6 +1,6 @@
 from logging import getLogger
 from chat_wb.neo4j.memory import (get_messages, get_titles, query_messages, create_and_update_title,
-                                  get_latest_messages, get_latest_message_relationships)
+                                  get_latest_messages, get_latest_message_relationships, pursue_node_update_history)
 from chat_wb.neo4j.triplet import TripletsConverter
 from chat_wb.models import remove_suffix
 from fastapi import APIRouter, Body
@@ -83,3 +83,8 @@ async def retrieve_entity_api(text: str):
 @memory_router.get("/query_messages", tags=["memory"])
 async def query_messages_api(query: str):
     return await query_messages(query)
+
+
+@memory_router.get("/pursue_node_update_history", tags=["memory"])
+async def pursue_node_update_history_api(label: str, name: str):
+    return await pursue_node_update_history(label, name)
