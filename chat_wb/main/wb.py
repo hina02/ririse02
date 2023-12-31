@@ -308,7 +308,7 @@ class StreamChatClient():
     async def wb_store_memory(self):
         """user_input_entityを抽出し、Neo4jに保存する。"""
     # user_input_entity
-        converter = TripletsConverter(client=self.client, user_name=self.user, ai_name=self.AI)
+        converter = TripletsConverter(client=self.client, user_name=self.user, ai_name=self.AI, time_zone=self.time_zone)
         # triage text
         self.user_input_type = await converter.triage_text(self.user_input)
         # convert text to triplets

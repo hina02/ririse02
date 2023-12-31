@@ -39,26 +39,29 @@ RELATION_SETS = None  # fetch_label_and_relationship_type_sets()
 # Iの変換は行う。Youの変換は行わない。このプロンプトだけでは不十分なので、後でI,Youの変換を直接行う。
 # conference resolution, ellipsis resolution, contextual completionを用い、代名詞の補正等を行う。
 # [OPTIMIZE] relatiohsips.properties key example
+# [OPTIMIZE] relationships are verb-like or adjective-like. | Relationships are actions or states.
 EXTRACT_TRIPLET_PROMPT = """
-Output json format to neo4j without id.
+Output JSON format to neo4j without id.
 
-Given a sentence, your task is to apply coreference resolution, ellipsis resolution, and contextual completion to the sentence.
-Specifically, identify and resolve any instances where pronouns or demonstratives refer to specific nouns (coreference resolution),
-fill in any missing elements implied by the context but not explicitly stated in the sentence (ellipsis resolution),
-and enhance the overall understanding of the sentence by adding necessary contextual information (contextual completion).
-When forming nodes, avoid using abstract terms and instead use proper nouns to ensure clarity and specificity.
+This sentence is a line spoken by {user} during a chat between {user} and {ai}.
+Current Time: {current_time}
+Your task is to apply coreference resolution, ellipsis resolution, and contextual completion to the sentence for the correct nodes and relationships to be extracted.
 If the sentence expressed with first person pronouns in any language (e.g. 'I', 'my', 'me' etc.), use "{user}".
 If the sentence expressed with second person pronouns in any language (e.g. 'you', 'your', etc.), use "{ai}".
 
-If len(Nodes) > 2, Relationship_types is required.
+Nodes are entity-like.
+Abstract concepts(e.g., personality, preference etc.) should be treated as properties of the nodes.
+Relationships are verb-like or adjective-like.
+Time is treated as the properties of relationships.
+
 If there is no node and relationship, output is {{Nodes: [], Relationships: []}}.
-{{Nodes: [{{"label", "name", "properties"}}],
-Relationships: [{{"start_node", "end_node", "type", "properties:dict(e.g., time etc.)"}}]}}
+Output JSON format is {{Nodes: [{{"label", "name", "properties"}}],
+Relationships: [{{"start_node", "end_node", "type":uppercase, "properties"}}]}}.
 """
 
 EXTRACT_ENTITY_PROMPT = """
 Output all entities in JSON format using a single key 'Entity'.
 
 If there are no entity, output is {{'Entity': []}}.
-Output json format is {{'Entity': list(str)}}.
+Output JSON format is {{'Entity': list(str)}}.
 """

@@ -1,4 +1,6 @@
 import asyncio
+from datetime import datetime
+import pytz
 import json
 from logging import getLogger
 import openai
@@ -26,10 +28,11 @@ logger = getLogger(__name__)
 
 class TripletsConverter():
     """OpenAI APIを用いて、textをtripletsに変換するクラス"""
-    def __init__(self, client: AsyncOpenAI | None = None,  user_name: str = "彩澄しゅお", ai_name: str = "彩澄りりせ"):
+    def __init__(self, client: AsyncOpenAI | None = None,  user_name: str = "彩澄しゅお", ai_name: str = "彩澄りりせ", time_zone: str = "Asia/Tokyo"):
         self.client = AsyncOpenAI() if client is None else client
         self.user_name = user_name
         self.ai_name = ai_name
+        self.time_zone = time_zone         # [TODO] User Setting
         self.user_input_type = "question"  # questionの時は、neo4jに保存しない。
 
     # triage summerize function
@@ -114,8 +117,9 @@ class TripletsConverter():
         ]
         }
         """
+        current_time = datetime.now(pytz.timezone(self.time_zone)).strftime("%Y-%m-%d %H:%M:%S")
         # prompt
-        system_prompt = EXTRACT_TRIPLET_PROMPT.format(user=self.user_name, ai=self.ai_name)
+        system_prompt = EXTRACT_TRIPLET_PROMPT.format(user=self.user_name, ai=self.ai_name, current_time=current_time)
         user_prompt = text
         messages = ChatPrompt(
             system_message=system_prompt,

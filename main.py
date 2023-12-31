@@ -95,18 +95,6 @@ def read_root():
 
 
 # test endpoint
-@app.get("/conference")
-async def conference_resolution_chain(text: str):
-    return await TripletsConverter().coference_resolution(text)
-
-
-@app.get("/triplets")
-async def triplets(text: str):
-    result = await TripletsConverter().convert_to_triplets(text)
-    logger.info(result)
-    return result
-
-
 @app.get("/run_sequences")
 async def run_sequences_api(text: str):
     converter = TripletsConverter()

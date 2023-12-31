@@ -75,10 +75,10 @@ async def get_node_api(label: str, name: str):
 
 
 # get node relationship
-@neo4j_router.get("/get_node_relationships/{label}/{name}", tags=["node"])
-async def get_node_relationship_api(label: str, name: str, depth: int = 1):
+@neo4j_router.get("/get_node_relationships/{name}", tags=["node"])
+async def get_node_relationship_api(name: str):
     """ノードのリレーションシップ（Messageを除く）を取得する。"""
-    result = await get_node_relationships(label=label, name=name, depth=depth)
+    result = await get_node_relationships([name])
     return result if result else None
 
 
