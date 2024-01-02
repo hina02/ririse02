@@ -28,12 +28,14 @@ logger = getLogger(__name__)
 
 class TripletsConverter():
     """OpenAI APIを用いて、textをtripletsに変換するクラス"""
-    def __init__(self, client: AsyncOpenAI | None = None,  user_name: str = "彩澄しゅお", ai_name: str = "彩澄りりせ", time_zone: str = "Asia/Tokyo"):
+    def __init__(self, client: AsyncOpenAI | None = None,  user_name: str = "彩澄しゅお", ai_name: str = "彩澄りりせ", time_zone: str = "Asia/Tokyo",
+                 short_memory: list[TempMemory] | None = None):
         self.client = AsyncOpenAI() if client is None else client
         self.user_name = user_name
         self.ai_name = ai_name
         self.time_zone = time_zone         # [TODO] User Setting
         self.user_input_type = "question"  # questionの時は、neo4jに保存しない。
+        self.short_memory = short_memory    # chat history
 
     # triage summerize function
     async def triage_text(self, text: str) -> str:
@@ -72,6 +74,7 @@ class TripletsConverter():
         messages = ChatPrompt(
             system_message=system_prompt,
             user_message=user_prompt,
+            short_memory=self.short_memory,    # short_memoryから、会話履歴を追加
         ).create_messages()
 
         response = await self.client.chat.completions.create(
@@ -92,6 +95,7 @@ class TripletsConverter():
         messages = ChatPrompt(
             system_message=system_prompt,
             user_message=user_prompt,
+            short_memory=self.short_memory,    # short_memoryから、会話履歴を追加
         ).create_messages()
 
         response = await self.client.chat.completions.create(
@@ -124,6 +128,7 @@ class TripletsConverter():
         messages = ChatPrompt(
             system_message=system_prompt,
             user_message=user_prompt,
+            short_memory=self.short_memory,    # short_memoryから、会話履歴を追加
         ).create_messages()
 
         # response生成
@@ -137,10 +142,7 @@ class TripletsConverter():
         return response.choices[0].message.content
 
     @atimer
-    async def run_sequences(self, text: str, short_memory: list[TempMemory] | None = None) -> Triplets | None:
-        # for conference_resolution
-        self.short_memory = short_memory
-
+    async def run_sequences(self, text: str) -> Triplets | None:
         # convert to triplets
         if self.user_input_type == "code":
             response_json = await self.summerize_code(text=text)
@@ -164,11 +166,12 @@ class TripletsConverter():
     async def extract_entites(self, text: str) -> list[str] | None:
         """user_inputから、entityを抽出する。0.5～1.5秒程度。"""
         # prompt
-        system_prompt = EXTRACT_ENTITY_PROMPT
+        system_prompt = EXTRACT_ENTITY_PROMPT.format(user=self.user_name, ai=self.ai_name)
         user_prompt = text
         messages = ChatPrompt(
             system_message=system_prompt,
             user_message=user_prompt,
+            short_memory=self.short_memory,    # short_memoryから、会話履歴を追加
         ).create_messages()
 
         # response生成

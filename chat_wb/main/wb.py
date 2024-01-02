@@ -300,7 +300,7 @@ class StreamChatClient():
 
     async def _retrieve_entity(self, text: str):
         """user_inputから、深さn(1)までのentityを抽出する。合計3秒程度。"""
-        user_input_entity = await TripletsConverter().extract_entites(text)
+        user_input_entity = await TripletsConverter(short_memory=self.short_memory.short_memory).extract_entites(text)
         entities = [remove_suffix(entity) for entity in user_input_entity]
         return await get_node_relationships(names=entities)
 
@@ -308,11 +308,15 @@ class StreamChatClient():
     async def wb_store_memory(self):
         """user_input_entityを抽出し、Neo4jに保存する。"""
     # user_input_entity
-        converter = TripletsConverter(client=self.client, user_name=self.user, ai_name=self.AI, time_zone=self.time_zone)
+        converter = TripletsConverter(client=self.client,
+                                      user_name=self.user,
+                                      ai_name=self.AI,
+                                      time_zone=self.time_zone,
+                                      short_memory=self.short_memory.short_memory)
         # triage text
         self.user_input_type = await converter.triage_text(self.user_input)
         # convert text to triplets
-        triplets = await converter.run_sequences(self.user_input, self.short_memory.short_memory)
+        triplets = await converter.run_sequences(self.user_input)
         if triplets is None:
             return None
         # websocket終了時に実行するstore_messageに渡すため、selfに格納。

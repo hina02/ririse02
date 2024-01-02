@@ -43,24 +43,27 @@ RELATION_SETS = None  # fetch_label_and_relationship_type_sets()
 EXTRACT_TRIPLET_PROMPT = """
 Output JSON format to neo4j without id.
 
-This sentence is a line spoken by {user} during a chat between {user} and {ai}.
-Current Time: {current_time}
+This is a line spoken by {user} during a chat between {user} and {ai}.
 Your task is to apply coreference resolution, ellipsis resolution, and contextual completion to the sentence for the correct nodes and relationships to be extracted.
+Specifically, identify and resolve any instances where pronouns or demonstratives refer to specific nouns (coreference resolution),
+fill in any missing elements implied by the context but not explicitly stated in the sentence (ellipsis resolution),
+and enhance the overall understanding of the sentence by adding necessary contextual information (contextual completion).
 If the sentence expressed with first person pronouns in any language (e.g. 'I', 'my', 'me' etc.), use "{user}".
 If the sentence expressed with second person pronouns in any language (e.g. 'you', 'your', etc.), use "{ai}".
 
 Nodes are entity-like.
 Abstract concepts(e.g., personality, preference etc.) should be treated as properties of the nodes.
-Relationships are verb-like or adjective-like.
-Time is treated as the properties of relationships.
+If time is mentioned, time is treated as the properties of relationships (Current Time: {current_time}).
 
 If there is no node and relationship, output is {{Nodes: [], Relationships: []}}.
-Output JSON format is {{Nodes: [{{"label", "name", "properties"}}],
+Output JSON format is {{Nodes: [{{"label", "name", "properties": lowercase}}],
 Relationships: [{{"start_node", "end_node", "type":uppercase, "properties"}}]}}.
 """
 
 EXTRACT_ENTITY_PROMPT = """
 Output all entities in JSON format using a single key 'Entity'.
+If the sentence expressed with first person pronouns in any language (e.g. 'I', 'my', 'me' etc.), use "{user}".
+If the sentence expressed with second person pronouns in any language (e.g. 'you', 'your', etc.), use "{ai}".
 
 If there are no entity, output is {{'Entity': []}}.
 Output JSON format is {{'Entity': list(str)}}.

@@ -49,7 +49,7 @@ def create_update_node(node: Node):
                 session.run(update_query, node_id=node_id)
                 # idが複数の場合、このクエリは実行されず、スルーされる。
 
-                message = f"Node {{{label}:{name}}} already exists.\nProperty updated."
+                message = f"Node {{{label}:{name}}} already exists. Property updated."
                 logger.info(message)
                 return {"status": "success", "message": message, "node_id": node_id}
 
@@ -64,12 +64,11 @@ def create_update_node(node: Node):
             RETURN id(n) as node_id
             """
             result = session.run(merge_query, **properties)
-            node_id = result.single()["node_id"]
-
-            message = f"Node {{{label}:{name}}} created."
-            logger.info(message)
-            return {"status": "success", "message": message, "node_id": node_id}
-
+            node_id = result.single().get("node_id")
+            if node_id:
+                logger.info(f"Node {{{label}:{name}}} created.")
+            else:
+                logger.error(f"Node {{{label}:{name}}} creation failed.")
 
 # optionのリレーションシップを作成する
 def create_update_relationship(relationships: Relationships):
@@ -109,25 +108,30 @@ def create_update_relationship(relationships: Relationships):
                     properties=properties,
                     relationship_id=relationship_id,
                 )  # idが複数の場合、このクエリは実行されず、スルーされる。
-
-                message = f"""Relationship {{Node1:{start_node}}}-{{{relation_type}}}
-                                ->{{Node2:{end_node}}} already exists.\nProperty updated:{{'properties':{properties}}}"""
-                logger.info(message)
-                return {"status": "success", "message": message}
+                logger.info(f"""Relationship {{Node1:{start_node}}}-{{{relation_type}}}
+                                ->{{Node2:{end_node}}} already exists. Property updated:{{'properties':{properties}}}""")
 
         # リレーションシップが存在しない場合、新しいリレーションシップを作成
         else:
             properties = properties or {}
-            session.run(
+            result = session.run(
                 f"""
-                MATCH (n1{start_node_label} {{name: $start_node}}), (n2{end_node_label} {{name: $end_node}})
+                MATCH (n1{start_node_label}), (n2{end_node_label})
+                WHERE (n1.name = $start_node OR $start_node IN n1.name_variation)
+                AND (n2.name = $end_node OR $end_node IN n2.name_variation)
                 MERGE (n1)-[r:{relation_type}]->(n2)
                 ON CREATE SET r += $properties
+                RETURN id(r) as relationship_id
                 """,
                 start_node=start_node,
                 end_node=end_node,
                 properties=properties,
-            )
+            ).single()
+            relationship_id = result.get("relationship_id") if result else None
+            if relationship_id:
+                logger.info(f"Relationship {{Node1:{start_node}}}-{{{relation_type}}}->{{Node2:{end_node}}} created.")
+            else:
+                logger.error(f"Relationship {{Node1:{start_node}}}-{{{relation_type}}}->{{Node2:{end_node}}} creation failed.")
 
 
 # ノードを削除する

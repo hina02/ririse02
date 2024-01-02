@@ -378,7 +378,8 @@ async def store_message(
                 session.run(
                     f"""
                         MATCH (b) WHERE id(b) = $new_node_id
-                        MATCH (d:`{node.label}` {{name: $name}})
+                        MATCH (d:{node.label})
+                        WHERE d.name = $name OR $name IN d.name_variation
                         CREATE (b)-[r:CONTAIN]->(d)
                         SET r = $props
                     """,

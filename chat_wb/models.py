@@ -111,21 +111,30 @@ class Triplets(BaseModel):
 
         relationships = []
         if 'Relationships' in triplets_data:
-            relationships = [
-                Relationships.create(
-                    type=relationship['type'],
-                    # start_node, end_nodeが"I","Me"或いは"User"、または"You"の場合、それぞれを"user_name"と"ai_name"に変換
-                    start_node=relationship['start_node'] if relationship['start_node'].lower() not in FIRST_PERSON_PRONOUNS +
-                    SECOND_PERSON_PRONOUNS else user_name if relationship['start_node'].lower() in FIRST_PERSON_PRONOUNS else ai_name,
-                    end_node=relationship['end_node'] if relationship['end_node'].lower() not in FIRST_PERSON_PRONOUNS +
-                    SECOND_PERSON_PRONOUNS else user_name if relationship['end_node'].lower() in FIRST_PERSON_PRONOUNS else ai_name,
-                    properties=relationship.get('properties', None),
-                    start_node_label=next((node.label for node in nodes if node.name == relationship['start_node']), None),
-                    end_node_label=next((node.label for node in nodes if node.name == relationship['end_node']), None)
-                )
-                for relationship in triplets_data['Relationships']
-                if 'type' in relationship and 'start_node' in relationship and 'end_node' in relationship  # 必要なキーが存在することを確認
-            ]
+            for relationship in triplets_data['Relationships']:
+                if 'type' in relationship and 'start_node' in relationship and 'end_node' in relationship:
+                    start_node = relationship.get('start_node')
+                    end_node = relationship.get('end_node')
+                    if start_node.lower() in FIRST_PERSON_PRONOUNS:
+                        start_node = user_name
+                    elif start_node.lower() in SECOND_PERSON_PRONOUNS:
+                        start_node = ai_name
+                    if end_node.lower() in FIRST_PERSON_PRONOUNS:
+                        end_node = user_name
+                    elif end_node.lower() in SECOND_PERSON_PRONOUNS:
+                        end_node = ai_name
+                    start_node_label = next((node.label for node in nodes if node.name == start_node), None)
+                    end_node_label = next((node.label for node in nodes if node.name == end_node), None)
+                    relationships.append(
+                        Relationships.create(
+                            type=relationship.get('type'),
+                            start_node=start_node,
+                            end_node=end_node,
+                            properties=relationship.get('properties'),
+                            start_node_label=start_node_label,
+                            end_node_label=end_node_label
+                        )
+                    )
             relationships = [relationship for relationship in relationships if relationship is not None]
 
         return cls(nodes=nodes, relationships=relationships)
