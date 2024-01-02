@@ -55,6 +55,7 @@ class StreamChatClient():
         self.user = input_data.user
         self.AI = input_data.AI
         self.character_settings: Triplets
+        self.character_name_lsit: list[str] | None = None   # user, AIのname_variationを含めたname_list
         self.title = input_data.title
         self.latest_message_id: int | None = None
         self.client = AsyncOpenAI()
@@ -80,6 +81,14 @@ class StreamChatClient():
         nodes = [node for node in [AI[0], user[0]] if node is not None]
         relationships = relationships if relationships is not None else []
         self.character_settings = Triplets(nodes=nodes, relationships=relationships)
+
+        # user, AIのname_variationを含めたname_listを取得する。
+        character_name_list = []
+        for node in self.character_settings.nodes:
+            character_name_list.append(node.name)
+            if node.properties.get("name_variation"):
+                character_name_list += node.properties.get("name_variation")
+        self.character_name_lsit = character_name_list
 
         # load short_memory
         short_memory = []
@@ -277,6 +286,7 @@ class StreamChatClient():
         logger.info(f"message_retrieved_memory: {len(message_retrieved_memory.nodes)} nodes, {len(message_retrieved_memory.relationships)} relationships" if message_retrieved_memory else "message_retrieved_memory: None")
         logger.info(f"entity_retrieved_memory: {len(entity_retrieved_memory.nodes)} nodes, {len(entity_retrieved_memory.relationships)} relationships" if entity_retrieved_memory else "entity_retrieved_memory: None")    
 
+        # ①②の結果を統合し、retrieved_memory(short_memoryにつながる)に格納する。
         nodes = set()
         relationships = set()
         if message_retrieved_memory:
@@ -301,8 +311,10 @@ class StreamChatClient():
     async def _retrieve_entity(self, text: str):
         """user_inputから、深さn(1)までのentityを抽出する。合計3秒程度。"""
         user_input_entity = await TripletsConverter(short_memory=self.short_memory.short_memory).extract_entites(text)
-        entities = [remove_suffix(entity) for entity in user_input_entity]
-        return await get_node_relationships(names=entities)
+        if user_input_entity:
+            entities = [remove_suffix(entity) for entity in user_input_entity]                      # entityの末尾に付与されるsuffixを削除する。
+            entities = [entity for entity in entities if entity not in self.character_name_lsit]    # entitiesから、user, aiのnameを除外する。
+            return await get_node_relationships(names=entities)
 
 # Store memory
     async def wb_store_memory(self):

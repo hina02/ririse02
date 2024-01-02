@@ -93,7 +93,8 @@ class Triplets(BaseModel):
 
     @classmethod
     def create(cls, triplets_data, user_name: str, ai_name: str):
-        """LLMで生成されたTripletsをTripletsオブジェクトに変換する"""
+        """LLMで生成されたTripletsをTripletsオブジェクトに変換する。
+        各propertiesのキーをlowercaseに、各typeをuppercaseにする。"""
         # [OPTIMIZE] user_name, ai_nameの置換は、プロンプトの向上で不要となった可能性あり。出力が安定するようなら省く。
         nodes = []
         if 'Nodes' in triplets_data:
@@ -106,7 +107,8 @@ class Triplets(BaseModel):
                         name = user_name
                     elif name.lower() in SECOND_PERSON_PRONOUNS:
                         name = ai_name
-                    nodes.append(Node.create(label=node.get('label'), name=name, properties=node.get('properties')))
+                    properties = {k.lower(): v for k, v in node.get('properties', {}).items()}  # propertiesのキーを小文字に変換
+                    nodes.append(Node.create(label=node.get('label'), name=name, properties=properties))
             nodes = [node for node in nodes if node is not None]    # Noneを除外
 
         relationships = []
@@ -125,12 +127,14 @@ class Triplets(BaseModel):
                         end_node = ai_name
                     start_node_label = next((node.label for node in nodes if node.name == start_node), None)
                     end_node_label = next((node.label for node in nodes if node.name == end_node), None)
+                    type = relationship.get('type').upper()  # typeを大文字に変換
+                    properties = {k.lower(): v for k, v in relationship.get('properties', {}).items()}  # propertiesのキーを小文字に変換
                     relationships.append(
                         Relationships.create(
-                            type=relationship.get('type'),
+                            type=type,
                             start_node=start_node,
                             end_node=end_node,
-                            properties=relationship.get('properties'),
+                            properties=properties,
                             start_node_label=start_node_label,
                             end_node_label=end_node_label
                         )
