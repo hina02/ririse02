@@ -34,7 +34,18 @@ class Node(BaseModel):
         """Cypherクエリを生成する"""
         props = ""
         if self.properties:
-            props = ', '.join([f"{key}: '{value}'" for key, value in self.properties.items()])
+            # propertiesをstr | list[str]形式の文字列に変換
+            props_list = []
+            for key, value in self.properties.items():
+                if isinstance(value, list):
+                    if len(value) == 1:
+                        value_str = str(value[0])
+                    else:
+                        value_str = '[' + ', '.join(map(str, value)) + ']'
+                else:
+                    value_str = str(value)
+                props_list.append(f"{key}: {value_str}")
+            props = ', '.join(props_list)
             props = f"{{ {props} }}" if props else ""
         return f"({self.name}:{self.label} {props})"
 
@@ -72,6 +83,7 @@ class Relationships(BaseModel):
         return cls(type=type, start_node=start_node, end_node=end_node, properties=properties,
                    start_node_label=start_node_label, end_node_label=end_node_label)
 
+    # [TODO] 双方向クエリへの対応を検討
     def to_cypher(self) -> str:
         """Cypherクエリを生成する"""
         start_label = f":{self.start_node_label}" if self.start_node_label else ""
@@ -162,6 +174,16 @@ class Triplets(BaseModel):
         return json.dumps(cypher_data, ensure_ascii=False)
 
 
+class MessageNode(BaseModel):
+    id: int
+    source: str
+    user_input: str
+    AI: str
+    ai_response: str
+    user_input_entity: Triplets | None
+    create_time: datetime
+
+
 # Use in Triplet
 def remove_suffix(name: str) -> str:
     """正規表現パターンで、接尾語を列挙し、それらを末尾から削除する"""
@@ -201,30 +223,30 @@ def remove_suffix(name: str) -> str:
 
 # WebScoketで受け取るデータのモデル
 class WebSocketInputData(BaseModel):
+    title: str
     user: str
     AI: str
     source: str     # user_id or assistant_id(asst_) # user_id作成時にasst_の使用を禁止する
-    input_text: str
-    title: str
+    user_input: str
     former_node_id: int | None = None   # node_idを渡すことで、途中のメッセージに新しいメッセージを追加することができる。使用する場合、フロントで枝分かれの表示方法の実装が必要。
     with_voice: bool = True
 
 
 class TempMemory(BaseModel):
-    user_input: str
-    ai_response: str
-    triplets: Triplets | None = None         # 長期記憶(from neo4j)
-    time: datetime | None = None             # メッセージの時刻 (古いメッセージの時刻を示すために使用)
+    """MessageNodeと、それに紐づくTripletsを保持するクラス"""
+    message: MessageNode                # メッセージの内容
+    triplets: Triplets | None = None    # 長期記憶(from neo4j)
 
 
 class ShortMemory(BaseModel):
+    """TempMemoryのリストを保持し、nodes, relationshipsをsetに変換するクラス"""
     short_memory: list[TempMemory] = []
     limit: int = 7
     nodes_set: set[Node] = set()
     relationships_set: set[Relationships] = set()
     triplets: Triplets | None = None
 
-    def convert_to_tripltets(self):
+    def convert_to_tripltets(self) -> Triplets | None:
         # セットに変換（重複を削除）
         for temp_memory in self.short_memory:
             if temp_memory.triplets:
@@ -232,14 +254,14 @@ class ShortMemory(BaseModel):
                 self.relationships_set.update(temp_memory.triplets.relationships)
         # Tripletsに変換
         self.triplets = Triplets(nodes=list(self.nodes_set), relationships=list(self.relationships_set))
+        return self.triplets
 
-    def memory_turn_over(self, user_input: str, ai_response: str, retrieved_memory: Triplets | None = None):
+    def memory_turn_over(self, message: MessageNode, retrieved_memory: Triplets | None = None):
         temp_memory = TempMemory(
-            user_input=user_input,
-            ai_response=ai_response,
+            message=message,
             triplets=retrieved_memory,
         )
-        logger.info(f"short_memory: {self.short_memory}")
+        logger.info(f"temp_memory: {temp_memory}")
         # short_memoryに追加
         self.short_memory.append(temp_memory)
 
@@ -249,3 +271,10 @@ class ShortMemory(BaseModel):
 
         # セットに変換（重複を削除）し、Tripletsに変換
         self.convert_to_tripltets()
+
+
+class NodeHistory(BaseModel):
+    """Nodeとそれに紐づくMessageNodeを保持するクラス"""
+    node: Node
+    relationships: list[Relationships] = []
+    messages: list[MessageNode] = []

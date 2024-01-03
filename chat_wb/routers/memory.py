@@ -1,11 +1,11 @@
 from logging import getLogger
 from chat_wb.neo4j.memory import (get_messages, get_titles, query_messages, create_and_update_title,
-                                  get_latest_messages, get_latest_message_relationships, pursue_node_update_history)
+                                  get_message_entities, pursue_node_update_history)
 from chat_wb.neo4j.triplet import TripletsConverter
 from chat_wb.models import remove_suffix
 from fastapi import APIRouter, Body
 from chat_wb.neo4j.neo4j import get_node_relationships
-from chat_wb.models import Node, Triplets, ShortMemory, TempMemory
+from chat_wb.models import Triplets, ShortMemory
 
 memory_router = APIRouter()
 
@@ -14,8 +14,9 @@ logger = getLogger(__name__)
 
 
 @memory_router.get("/get_messages", tags=["memory"])
-def get_messages_api(title: str):
-    return get_messages(title)
+def get_messages_api(title: str, n: int = 100):
+    messages = get_messages(title, n)
+    return messages
 
 
 @memory_router.get("/get_titles", tags=["memory"])
@@ -23,39 +24,21 @@ def get_titles_api():
     return get_titles()
 
 
-# [HACK] message由来のrelationshipsとuser_input_entity由来のrelationshipsを統合するという強引な構成
+# [TODO] MessageからのContainリレーションシップを作成する
 @memory_router.get("/get_latest_messages/{title}/{n}", tags=["memory"])
 def get_latest_messages_api(title: str, n: int = 7) -> Triplets | None:
-    # Title -> Message -> Entityを取得
-    relationships = get_latest_message_relationships(title, n)
+    """指定したタイトルの最新n件のメッセージを取得し、関連するEntityと閉じたリレーションシップを取得する。"""
+    # 指定したタイトルの最新n件のメッセージを取得する
+    messages = get_messages(title, n)
 
-    # Message から user_input_entityに基づくrelationshipsを取得 Entity -> Entity
-    messages, latest_node_id = get_latest_messages(title, n)
-    """指定したタイトルの最新n件のメッセージを取得する"""
-    message_nodes = []
-    triplets = []
+    # Messageからlist[TempMemory]を取得する
     if messages:
-        for message in reversed(messages):
-            message_node = Node(label="Message", name=message["user_input"], properties=message)
-            message_nodes.append(message_node)
+        node_ids = [message.id for message in messages]
+        short_memory = get_message_entities(node_ids)
 
-            # ShortMemory.convert_to_tripltets()を流用して、複数のuser_input_entityを一つのTripletsにまとめる
-            triplets.append(
-                TempMemory(
-                    user_input=message["user_input"],
-                    ai_response=message["ai_response"],
-                    triplets=Triplets().model_validate_json(message.get("user_input_entity")) if message.get("user_input_entity") else None,
-                )
-            )
-    short_memory = ShortMemory(short_memory=triplets, limit=n)
-    short_memory.convert_to_tripltets()
-    triplets_set = short_memory.triplets
-    triplets_set.nodes.extend(message_nodes)
-    # triplets_set.relationshipsに、relationshipsを追加し、setで重複を削除する
-    triplets_set.relationships.extend(relationships)
-    triplets_set.relationships = list(set(triplets_set.relationships))
-
-    return triplets_set
+        # list[TempMemory]のentityを集約したTripletsを返す
+        short_memory = ShortMemory(short_memory=short_memory, limit=n)
+        return short_memory.convert_to_tripltets()
 
 
 @memory_router.post("/store_memory_from_triplet", tags=["memory"])

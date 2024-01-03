@@ -42,23 +42,21 @@ async def websocket_endpoint(websocket: WebSocket):
         )
 
     # 全ての処理が終了した後で、Neo4jに保存する。
-    new_node_id = await store_message(
+    message = await store_message(
         input_data=input_data,
         ai_response=client.ai_response,
         user_input_entity=client.user_input_entity)
 
     # 最新のメッセージのidを更新
-    client.latest_message_id = new_node_id
+    client.latest_message_id = message.id
 
-    # memory_turn_overし、一時的な要素をリセットする。
-    client.close_chat()
+    # memory_turn_overにより、Messageとretrieval_memoryをshort_memoryに格納し、一時的な要素をリセットする。
+    client.close_chat(message)
 
-    # websocketにshort_memoryを付加して、closeメッセージを送信する
-    short_memory = Triplets(nodes=list(client.short_memory.nodes_set),
-                            relationships=list(client.short_memory.relationships_set))
+    # websocketにshort_memory.triplets(nodes, relationshipsのset)を渡して、closeメッセージを送信する
     message = {"type": "close",
-               "node_id": new_node_id,
-               "short_memory": short_memory.model_dump_json()}
+               "node_id": message.id,
+               "short_memory": client.short_memory.triplets.model_dump_json()}
     await websocket.send_text(json.dumps(message))
 
     # websocketを閉じる

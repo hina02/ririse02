@@ -1,11 +1,10 @@
-import asyncio
 from datetime import datetime
 import pytz
 import json
 from logging import getLogger
 import openai
 from openai import AsyncOpenAI
-from chat_wb.models import Triplets, Node, Relationships, TempMemory
+from chat_wb.models import Triplets, TempMemory
 from chat_wb.main.prompt import (
     CODE_SUMMARIZER_PROMPT,
     DOCS_SUMMARIZER_PROMPT,
@@ -13,12 +12,7 @@ from chat_wb.main.prompt import (
     EXTRACT_ENTITY_PROMPT,
     TEXT_TRIAGER_PROMPT,
 )
-from chat_wb.neo4j.neo4j import (
-    get_node_relationships,
-    get_node,
-    create_update_node,
-    create_update_relationship,
-)
+from chat_wb.neo4j.neo4j import create_update_node, create_update_relationship
 from openai_api.models import ChatPrompt
 from utils.common import atimer
 
@@ -158,9 +152,7 @@ class TripletsConverter():
             logger.error("Invalid response for json.loads")
             return None
         triplets = Triplets.create(response, self.user_name, self.ai_name)
-        if not triplets.nodes and not triplets.relationships:
-            triplets = None
-        return triplets
+        return triplets if triplets.nodes or triplets.relationships else None
 
     @atimer
     async def extract_entites(self, text: str) -> list[str] | None:
@@ -184,7 +176,6 @@ class TripletsConverter():
         )
         try:
             entity = json.loads(response.choices[0].message.content).get("Entity")
-            logger.info(entity)
             return entity
         except json.JSONDecodeError:
             logger.error("Invalid JSON response")

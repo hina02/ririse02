@@ -31,13 +31,8 @@ class ChatPrompt(BaseModel):
         # short_memoryから、user, assistantのメッセージ履歴を取得
         if self.short_memory is not None:
             for temp_memory in self.short_memory:
-                # timeがある場合、timeを追加（short_memoryをloadした際のmessage時刻を示す。turn over時の時刻を無理に取る必要はない）
-                if temp_memory.time:
-                    messages.append(Message(role="user", content=f"{temp_memory.time}: {temp_memory.user_input}"))
-                    messages.append(Message(role="assistant", content=f"{temp_memory.ai_response}"))
-                else:
-                    messages.append(Message(role="user", content=temp_memory.user_input))
-                    messages.append(Message(role="assistant", content=temp_memory.ai_response))
+                messages.append(Message(role="user", content=f"{temp_memory.message.create_time}: {temp_memory.message.user_input}"))
+                messages.append(Message(role="assistant", content=f"{temp_memory.message.ai_response}"))
 
         # 現在のuser, assistantのメッセージを追加
         messages.append(Message(role="user", content=self.user_message))

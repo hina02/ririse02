@@ -1,7 +1,8 @@
 from logging import getLogger
+import neo4j
 import os
-from typing import Any
-from chat_wb.models import Node, Relationships, Triplets
+from pydantic import ValidationError
+from chat_wb.models import Node, Relationships, Triplets, MessageNode
 from neo4j import GraphDatabase
 
 # ロガー設定
@@ -12,6 +13,61 @@ uri = os.environ["NEO4J_URI"]
 username = "neo4j"
 password = os.environ["NEO4J_PASSWORD"]
 driver = GraphDatabase.driver(uri, auth=(username, password))
+
+
+# Neo4j型の変換
+def convert_neo4j_node_to_model(node: neo4j.graph.Node) -> Node | None:
+    properties = dict(node)
+    try:
+        return Node(
+            label=next(iter(node.labels), None),
+            name=properties.pop("name"),
+            properties=properties if properties else None,
+        )
+    except KeyError as e:
+        logger.error(e)
+        return None
+
+
+def convert_neo4j_relationship_to_model(relationship: neo4j.graph.Relationship) -> Relationships:
+    start_node_name = (
+        relationship.start_node.get("name")
+        or relationship.start_node.get("user_input")
+        or relationship.start_node.get("title")
+    )
+    end_node_name = (
+        relationship.end_node.get("name")
+        or relationship.end_node.get("user_input")
+        or relationship.end_node.get("title")
+    )
+    if start_node_name and end_node_name:
+        properties = dict(relationship)
+        return Relationships(
+            type=relationship.type,
+            start_node=start_node_name,
+            end_node=end_node_name,
+            properties=properties if properties else None,
+            start_node_label=next(iter(relationship.start_node.labels), None),
+            end_node_label=next(iter(relationship.end_node.labels), None),
+        )
+
+
+def convert_neo4j_message_to_model(node: neo4j.graph.Node) -> MessageNode | None:
+    properties = dict(node)
+    try:
+        user_input_entity = properties.get("user_input_entity", None)
+        return MessageNode(
+            id=node.id,
+            source=properties["source"],
+            user_input=properties["user_input"],
+            AI=properties["AI"],
+            ai_response=properties["ai_response"],
+            user_input_entity=Triplets.model_validate_json(user_input_entity) if user_input_entity else None,
+            create_time=properties["create_time"].to_native(),
+        )
+    except (KeyError, ValidationError) as e:
+        logger.error(e)
+        return None
 
 
 # ノードの更新
@@ -38,7 +94,12 @@ def create_update_node(node: Node):
             if properties:
                 logger.info(f"properties: {properties}")
                 set_clause = ", ".join([
-                    f"n.{property_name} = CASE WHEN n.{property_name} IS NULL THEN ['{property_value}'] ELSE apoc.coll.toSet(n.{property_name} + ['{property_value}']) END"
+                    f"""n.{property_name} =
+                        CASE
+                            WHEN n.{property_name} IS NULL
+                            THEN ['{property_value}']
+                            ELSE apoc.coll.toSet(n.{property_name} + ['{property_value}'])
+                        END"""
                     for property_name, property_value in properties.items()
                 ])
                 update_query = f"""
@@ -70,6 +131,7 @@ def create_update_node(node: Node):
             else:
                 logger.error(f"Node {{{label}:{name}}} creation failed.")
 
+
 # optionのリレーションシップを作成する
 def create_update_relationship(relationships: Relationships):
     start_node = relationships.start_node
@@ -87,7 +149,7 @@ def create_update_relationship(relationships: Relationships):
             f"""
             MATCH (n1{start_node_label}), (n2{end_node_label})
             WHERE (n1.name = $start_node OR $start_node IN n1.name_variation)
-            AND (n2.name = $end_node OR $end_node IN n2.name_variation)
+                AND (n2.name = $end_node OR $end_node IN n2.name_variation)
             MATCH (n1)-[r:{relation_type}]->(n2)
             RETURN id(r) as relationship_id
             """,
@@ -118,7 +180,7 @@ def create_update_relationship(relationships: Relationships):
                 f"""
                 MATCH (n1{start_node_label}), (n2{end_node_label})
                 WHERE (n1.name = $start_node OR $start_node IN n1.name_variation)
-                AND (n2.name = $end_node OR $end_node IN n2.name_variation)
+                    AND (n2.name = $end_node OR $end_node IN n2.name_variation)
                 MERGE (n1)-[r:{relation_type}]->(n2)
                 ON CREATE SET r += $properties
                 RETURN id(r) as relationship_id
@@ -139,7 +201,11 @@ def delete_node(label: str = None, name: str = None):
     with driver.session() as session:
         # ラベルと名前でノードを削除する
         result = session.run(
-            f"MATCH (n:{label} {{name: $name}}) DETACH DELETE n RETURN count(n) as deleted_count",
+            f"""
+            MATCH (n:{label} {{name: $name}})
+            DETACH DELETE n
+            RETURN count(n) as deleted_count
+            """,
             name=name,
         )
         deleted_count = result.single().get("deleted_count")
@@ -173,28 +239,8 @@ def delete_relationship(relationship_id: int):
         return logger.info(message=f"Relationship_id {{{relationship_id}}} not found.")
 
 
-# 指定した範囲のノードのプロパティを取得する
-def get_node_properties(
-    label: str, skip: int, limit: int, order_by: str, ascend: bool = True
-) -> list[dict[str, Any]] | None:
-    properties = []
-
-    # 昇順または降順を設定
-    order_direction = "ASC" if ascend else "DESC"
-
-    with driver.session() as session:
-        # ORDER BY句を使用して指定した属性で並べ替えるクエリ
-        query = f"MATCH (n:{label}) RETURN properties(n) as properties ORDER BY n.{order_by} {order_direction} SKIP {skip} LIMIT {limit}"
-        result = session.run(query)
-        for record in result:
-            properties.append(record["properties"])
-
-    return properties if properties else None
-
-
 # ----------------------------------------------------------------
-
-# # Use in Cache
+# Use in Cache
 # Neo4jのノードラベルをすべて取ってくる関数
 def get_node_labels() -> list[str]:
     labels = []
@@ -263,7 +309,11 @@ def get_node_names(label: str) -> list[str]:
     names = []
 
     with driver.session() as session:
-        result = session.run(f"MATCH (n:{label}) RETURN n.name as name")
+        result = session.run(
+            f"""
+            MATCH (n:{label})
+            RETURN n.name as name
+            """)
         for record in result:
             names.append(record["name"])
 
@@ -275,7 +325,13 @@ def get_all_nodes() -> list[Node]:
     nodes = []
 
     with driver.session() as session:
-        result = session.run("MATCH (n) WHERE NOT 'Title' IN labels(n) AND NOT 'Message' IN labels(n) RETURN labels(n) as label, n.name as name")
+        result = session.run(
+            """
+            MATCH (n)
+            WHERE NOT 'Title' IN labels(n)
+                AND NOT 'Message' IN labels(n)
+            RETURN labels(n) as label, n.name as name
+            """)
         for record in result:
             node = Node(label=record["label"][0], name=record["name"], properties=None)
             nodes.append(node)
@@ -290,79 +346,77 @@ def get_all_relationships() -> list[str]:
         result = session.run(
             """
             MATCH (n)-[r]->(m)
-            WHERE NOT 'Title' IN labels(n) AND NOT 'Message' IN labels(n) AND NOT 'Title' IN labels(m) AND NOT 'Message' IN labels(m)
+            WHERE NOT 'Title' IN labels(n)
+                AND NOT 'Message' IN labels(n)
+                AND NOT 'Title' IN labels(m)
+                AND NOT 'Message' IN labels(m)
             RETURN type(r) AS type, n.name as start_node, m.name as end_node
             """
         )
         for record in result:
-            relationship = Relationships(type=record["type"], start_node=record["start_node"], end_node=record["end_node"], properties=None, start_node_label=None, end_node_label=None)
+            relationship = Relationships(type=record["type"], start_node=record["start_node"], end_node=record["end_node"],
+                                         properties=None, start_node_label=None, end_node_label=None)
             relationships.append(relationship)
 
     return relationships
 
 
-# 指定ノードの情報
-# nameがnameに一致、或いはname_variationに含まれるノードのプロパティを取得する
-# Personの場合は、name_variationsを併せて検索する。
-async def get_node(label: str | None, name: str) -> list[Node] | None:
-    label_clause = f":{label}" if label else ""
+async def get_node(label: str, name: str) -> list[Node] | None:
+    "Title, Messageを除く、指定したラベルのノードを取得する。"
     with driver.session() as session:
         result = session.run(
-            f"MATCH (n{label_clause}) WHERE $name IN n.name_variations OR n.name = $name RETURN labels(n)[0] as label, properties(n) as properties",
+            f"""
+            MATCH (n:{label})
+            WHERE $name IN n.name_variation OR n.name = $name
+            RETURN n
+            """,
             name=name,
         )
+
         nodes = []
         for record in result:
-            label = record["label"]
-            properties = record["properties"]
-            properties.pop("name", None)  # 'name'をpropertiesから除去
-            node = Node(label=label, name=name, properties=record["properties"])
+            node = convert_neo4j_node_to_model(record["n"])
             nodes.append(node)
-        logger.debug(f"nodes: {nodes}")
         return nodes if nodes else None
 
-from utils.common import atimer
+
 # ノードが増えてレスポンスが遅くなるようなら、一つのnameを受け取るクエリの非同期処理を検討する。
-@atimer
 async def get_node_relationships(names: list[str], depth: int = 1) -> Triplets | None:
-    """指定した深さまでの双方向リレーションシップを取得する（Message,Titleを除く）。複数nameを受け取る。"""
+    """複数nameを受け取り、指定した深さまでの双方向リレーションシップを取得する（Message,Titleを除く）。"""
     with driver.session() as session:
-        results = session.run(
+        result = session.run(
             f"""
             MATCH (start)
-            WHERE start.name IN $names OR ANY(name_variation IN start.name_variation WHERE name_variation IN $names)
-            MATCH path = (start)-[r*1..{depth}]-(end)
-            WHERE NONE(node IN nodes(path) WHERE 'Message' IN labels(node) OR 'Title' IN labels(node))
+            WHERE start.name IN $names
+                OR ANY(name_variation IN start.name_variation WHERE name_variation IN $names)
+
+            WITH collect(start) as starts
+            UNWIND starts as start
+                OPTIONAL MATCH path = (start)-[r*1..{depth}]-(end)
+                WHERE NONE(node IN nodes(path) WHERE 'Message' IN labels(node) OR 'Title' IN labels(node))
+
             UNWIND r as rel
-            RETURN type(rel) as relationship_type, properties(rel) as properties,
-                startNode(rel).name as start_node_name, labels(startNode(rel))[0] as start_node_label, properties(startNode(rel)) as start_node_properties,
-                endNode(rel).name as end_node_name, labels(endNode(rel))[0] as end_node_label, properties(endNode(rel)) as end_node_properties
+            RETURN starts,
+                collect(distinct startNode(rel)) as start_nodes,
+                collect(distinct endNode(rel)) as end_nodes,
+                collect(distinct rel) as rels
             """,
             names=names,
             depth=depth,
         )
+        record = result.single()
         nodes = set()
-        relationships = []
-        for record in results:
-            start_node = Node(label=record["start_node_label"], name=record["start_node_name"], properties=record["start_node_properties"])
-            end_node = Node(label=record["end_node_label"], name=record["end_node_name"], properties=record["end_node_properties"])
-            nodes.add(start_node)
-            nodes.add(end_node)
-            relationships.append(Relationships(
-                type=record["relationship_type"],
-                properties=record["properties"],
-                start_node=record["start_node_name"],
-                end_node=record["end_node_name"],
-                start_node_label=record["start_node_label"],
-                end_node_label=record["end_node_label"],
-            ))
-        if nodes and relationships:
-            triplets = Triplets(nodes=list(nodes), relationships=relationships)
-        else:
-            triplets = None
-        logger.debug(f"triplets: {triplets}")
-
-    return triplets
+        if record:
+            # クエリ探索の最初のノードの情報
+            initial_nodes = [convert_neo4j_node_to_model(node) for node in record["starts"]]
+            # relationshipsのstart_node, end_node, relsをモデルに変換
+            start_nodes = [convert_neo4j_node_to_model(node) for node in record["start_nodes"]]
+            end_nodes = [convert_neo4j_node_to_model(node) for node in record["end_nodes"]]
+            relationships = [convert_neo4j_relationship_to_model(relationship) for relationship in record["rels"]]
+            # ノードを統合
+            nodes = set(initial_nodes + start_nodes + end_nodes)
+            triplets = Triplets(nodes=nodes, relationships=relationships)
+            return triplets if triplets.nodes or triplets.relationships else None
 
 
 # ノードとノードの間にあるすべての双方向のリレーションとプロパティ（content）を得る。
@@ -373,8 +427,8 @@ async def get_node_relationships_between(
         result = session.run(
             f"""
             MATCH (a:{label1})-[r]-(b:{label2})
-            WHERE $name1 IN a.name_variations OR a.name = $name1
-                AND $name2 IN b.name_variations OR b.name = $name2
+            WHERE $name1 IN a.name_variation OR a.name = $name1
+                AND $name2 IN b.name_variation OR b.name = $name2
             RETURN  type(r) as relationship_type,
                 startNode(r).name as start_node_name,
                 endNode(r).name as end_node_name,
@@ -431,14 +485,20 @@ def integrate_node_properties(node1: Node, node2: Node):
     with driver.session() as session:
         # n1のプロパティを取得
         result1 = session.run(
-            f"MATCH (n1:{node1.label} {{name: $name1}}) RETURN properties(n1) AS props1",
+            f"""
+            MATCH (n1:{node1.label} {{name: $name1}})
+            RETURN properties(n1) AS props1
+            """,
             name1=node1.name,
         )
         props1 = result1.single()["props1"]
 
         # n2のプロパティを取得
         result2 = session.run(
-            f"MATCH (n2:{node2.label} {{name: $name2}}) RETURN properties(n2) AS props2",
+            f"""
+            MATCH (n2:{node2.label} {{name: $name2}})
+            RETURN properties(n2) AS props2
+            """,
             name2=node2.name,
         )
         props2 = result2.single()["props2"]
@@ -453,7 +513,11 @@ def integrate_node_properties(node1: Node, node2: Node):
 
         # 統合したプロパティをn1にセット
         result = session.run(
-            f"MATCH (n1:{node1.label} {{name: $name1}}) SET n1 = $props RETURN properties(n1)",
+            f"""
+            MATCH (n1:{node1.label} {{name: $name1}})
+            SET n1 = $props
+            RETURN properties(n1)
+            """,
             name1=node1.name,
             props=props1,
         )
