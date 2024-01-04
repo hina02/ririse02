@@ -17,11 +17,22 @@ driver = GraphDatabase.driver(uri, auth=(username, password))
 
 # Neo4j型の変換
 def convert_neo4j_node_to_model(node: neo4j.graph.Node) -> Node | None:
+    # Title, MessageをNode型に変換する場合、propertiesを除去する。
     properties = dict(node)
+    label = next(iter(node.labels), None)
+    if label == "Title":
+        name = properties.get("title")
+        properties = None
+    elif label == "Message":
+        name = properties.get("user_input")
+        properties = None
+    else:
+        name = properties.pop("name")
+
     try:
         return Node(
-            label=next(iter(node.labels), None),
-            name=properties.pop("name"),
+            label=label,
+            name=name,
             properties=properties if properties else None,
         )
     except KeyError as e:

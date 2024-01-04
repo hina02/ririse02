@@ -1,11 +1,11 @@
 from logging import getLogger
 from chat_wb.neo4j.memory import (get_messages, get_titles, query_messages, create_and_update_title,
-                                  get_message_entities, pursue_node_update_history)
+                                  get_latest_messages, pursue_node_update_history)
 from chat_wb.neo4j.triplet import TripletsConverter
 from chat_wb.models import remove_suffix
 from fastapi import APIRouter, Body
 from chat_wb.neo4j.neo4j import get_node_relationships
-from chat_wb.models import Triplets, ShortMemory
+from chat_wb.models import Triplets, ShortMemory, Relationships
 
 memory_router = APIRouter()
 
@@ -28,17 +28,7 @@ def get_titles_api():
 @memory_router.get("/get_latest_messages/{title}/{n}", tags=["memory"])
 def get_latest_messages_api(title: str, n: int = 7) -> Triplets | None:
     """指定したタイトルの最新n件のメッセージを取得し、関連するEntityと閉じたリレーションシップを取得する。"""
-    # 指定したタイトルの最新n件のメッセージを取得する
-    messages = get_messages(title, n)
-
-    # Messageからlist[TempMemory]を取得する
-    if messages:
-        node_ids = [message.id for message in messages]
-        short_memory = get_message_entities(node_ids)
-
-        # list[TempMemory]のentityを集約したTripletsを返す
-        short_memory = ShortMemory(short_memory=short_memory, limit=n)
-        return short_memory.convert_to_tripltets()
+    return get_latest_messages(title, n)
 
 
 @memory_router.post("/store_memory_from_triplet", tags=["memory"])
@@ -57,6 +47,7 @@ async def create_and_update_title_api(title: str = Body(...), new_title: str | N
 async def retrieve_entity_api(text: str):
     """ラベル無しでnameのみから、一次リレーションまでとノードプロパティを得る。"""
     user_input_entity = await TripletsConverter().extract_entites(text)
+    logger.info(f"user_input_entity: {user_input_entity}")
     entities = []
     for entity in user_input_entity:
         entities.append(remove_suffix(entity))

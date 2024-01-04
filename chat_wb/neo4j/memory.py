@@ -86,6 +86,46 @@ def get_messages(title: str, n: int) -> list[MessageNode]:
     return messages
 
 
+def get_latest_messages(title: str, n: int) -> Triplets | None:
+    """タイトルを指定して、Cytoscape表示用のMessage、Entity リレーションシップを取得する
+        Title -[CONTAIN]-> Message -[CONTAIN] -> Entity"""
+    n = n - 1 if n > 1 else 1
+    with driver.session() as session:
+        result = session.run(
+            f"""
+            MATCH (:Title {{title: $title}})-[:CONTAIN]->(m:Message)
+            WITH m
+            ORDER BY m.create_time DESC
+            LIMIT 1
+            MATCH path = (m)-[:FOLLOW*0..{n}]->(m2:Message)
+            WITH collect(path) AS paths, collect(m2) AS messages
+
+            UNWIND paths AS p
+            UNWIND relationships(p) AS rel
+            WITH messages, paths, collect(DISTINCT rel) AS pathRelationships
+
+            UNWIND messages AS message
+            OPTIONAL MATCH (message)-[r:CONTAIN]->(n1)
+            OPTIONAL MATCH (n1)-[r2]->(n2)
+
+            WITH messages, pathRelationships, collect(DISTINCT n1) AS entity, collect(DISTINCT r) AS r, collect(DISTINCT r2) AS r2, collect(DISTINCT n2) AS entity2
+            WITH messages + entity + entity2 AS nodes, pathRelationships + r + r2 AS relationships
+            RETURN nodes, relationships
+            """,
+            title=title,
+            n=n
+        ).single()
+
+        nodes = set()
+        relationships = set()
+        if result:
+            for node in result["nodes"]:
+                nodes.add(convert_neo4j_node_to_model(node))
+            for relationship in result["relationships"]:
+                relationships.add(convert_neo4j_relationship_to_model(relationship))
+            return Triplets(nodes=nodes, relationships=relationships)
+
+
 def get_titles() -> list[str]:
     """タイトルのリストを取得する"""
     with driver.session() as session:

@@ -1,7 +1,7 @@
 import re
 import json
 from logging import getLogger
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError, validator
 from datetime import datetime
 
 # ロガー設定
@@ -12,6 +12,12 @@ class Node(BaseModel):
     label: str
     name: str
     properties: dict | None
+
+    @validator('name')
+    def validate_name(cls, v):
+        if v == "":
+            raise ValueError('name is empty')
+        return v
 
     def __hash__(self):
         """long_memoryの重複排除に使用する。各属性を用いてハッシュ値を計算。"""
@@ -57,6 +63,12 @@ class Relationships(BaseModel):
     properties: dict | None
     start_node_label: str | None
     end_node_label: str | None
+
+    @validator('start_node', 'end_node')
+    def validate_name(cls, v):
+        if v == "":
+            raise ValueError('node name is empty')
+        return v
 
     def __hash__(self):
         """long_memoryの重複排除に使用する。各属性を用いてハッシュ値を計算。"""
@@ -119,14 +131,19 @@ class Triplets(BaseModel):
                         name = user_name
                     elif name.lower() in SECOND_PERSON_PRONOUNS:
                         name = ai_name
+                    # Nodeモデルに変換
                     properties = {k.lower(): v for k, v in node.get('properties', {}).items()}  # propertiesのキーを小文字に変換
-                    nodes.append(Node.create(label=node.get('label'), name=name, properties=properties))
+                    try:
+                        nodes.append(Node.create(label=node.get('label'), name=name, properties=properties))
+                    except ValidationError as e:
+                        logger.error(f"Validation error for node {node}: {e}")
             nodes = [node for node in nodes if node is not None]    # Noneを除外
 
         relationships = []
         if 'Relationships' in triplets_data:
             for relationship in triplets_data['Relationships']:
                 if 'type' in relationship and 'start_node' in relationship and 'end_node' in relationship:
+                    # nameが"I","Me"或いは"User"、または"You"の場合、それぞれを"user_name"と"ai_name"に変換
                     start_node = relationship.get('start_node')
                     end_node = relationship.get('end_node')
                     if start_node.lower() in FIRST_PERSON_PRONOUNS:
@@ -137,20 +154,24 @@ class Triplets(BaseModel):
                         end_node = user_name
                     elif end_node.lower() in SECOND_PERSON_PRONOUNS:
                         end_node = ai_name
+                    # Relationshipsモデルに変換
                     start_node_label = next((node.label for node in nodes if node.name == start_node), None)
                     end_node_label = next((node.label for node in nodes if node.name == end_node), None)
                     type = relationship.get('type').upper()  # typeを大文字に変換
                     properties = {k.lower(): v for k, v in relationship.get('properties', {}).items()}  # propertiesのキーを小文字に変換
-                    relationships.append(
-                        Relationships.create(
-                            type=type,
-                            start_node=start_node,
-                            end_node=end_node,
-                            properties=properties,
-                            start_node_label=start_node_label,
-                            end_node_label=end_node_label
+                    try:
+                        relationships.append(
+                            Relationships.create(
+                                type=type,
+                                start_node=start_node,
+                                end_node=end_node,
+                                properties=properties,
+                                start_node_label=start_node_label,
+                                end_node_label=end_node_label
+                            )
                         )
-                    )
+                    except ValidationError as e:
+                        logger.error(f"Validation error for relationship {relationship}: {e}")
             relationships = [relationship for relationship in relationships if relationship is not None]
 
         return cls(nodes=nodes, relationships=relationships)

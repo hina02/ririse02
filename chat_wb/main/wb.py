@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import re
 import pytz
@@ -222,28 +223,26 @@ class StreamChatClient():
         return full_text
 
     def close_chat(self, message: MessageNode):
-        # AI, Userの情報がある場合、Character_settingsに反映する。
-        # self.chatacter_settingsのうち、self.retrieved_memory.nodesと一致するものを更新する。
+        # user,AIの要素がある場合、Character_settingsに反映する。
+        # self.chatacter_settings(user,AIの要素)のうち、self.retrieved_memory.nodesと一致するものを更新する。
         self.character_settings.nodes = [
             next((rm_node for rm_node in self.retrieved_memory.nodes if rm_node.name == node.name and rm_node.label == node.label), node)
             for node in self.character_settings.nodes
         ]
-        # self.retrieved_memoryからは、self.character_settingsを除外する。
+        # self.retrieved_memoryからは、self.character_settings(user,AIの要素)を除外する。
         self.retrieved_memory.nodes = [
             rm_node for rm_node in self.retrieved_memory.nodes
             if not any(node.name == rm_node.name and node.label == rm_node.label for node in self.character_settings.nodes)
         ]
 
-        # user_input, ai_response, retrieved_memoryをまとめて、short_memory classに格納する。
+        # message, retrieved_memoryをまとめて、short_memory classに格納する。
         self.short_memory.memory_turn_over(
             message=message,
             retrieved_memory=self.retrieved_memory
         )
 
-        # user_input_entity、temp_memory、retrieved_memory、retrieved_memoryをリセット
+        # user_input_entity、retrieved_memoryをリセット
         self.user_input_entity = None
-        self.temp_memory = None
-        self.retrieved_memory = None
         self.retrieved_memory = None
         logger.debug(f"client title: {self.title}")
         logger.debug(f"short_memory: {self.short_memory.short_memory}")
@@ -410,6 +409,41 @@ class StreamChatClient():
                 }
                 await websocket.send_text(json.dumps(message))  # JSONとして送信
         logger.info(fulltext)
+        self.ai_response = fulltext
+        return fulltext
+
+    # テキスト生成だけを行う関数(非websocket)
+    async def generate_text(self):
+        if self.retrieved_memory is None:
+            for _ in range(10):
+                if self.retrieved_memory is not None:
+                    break
+                await asyncio.sleep(0.3)
+                max_tokens = 140
+
+        # response生成
+        # prompt生成
+        messages = self.create_chat_prompt()
+        logger.info(f"messages: {messages}")
+
+        # response生成
+        response = await self.client.chat.completions.create(
+            model="gpt-4-1106-preview",
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=0.7,
+            frequency_penalty=0.3,  # 繰り返しを抑制するために必須。
+            stream=True,
+        )
+
+        fulltext = ""
+        async for chunk in response:
+            if chunk.choices[0].delta.content is not None:
+                content = chunk.choices[0].delta.content
+                sys.stdout.write(content)
+                sys.stdout.flush()
+                fulltext += content
+
         self.ai_response = fulltext
         return fulltext
 
