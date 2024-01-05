@@ -53,7 +53,7 @@ In any text, replace first person pronouns (e.g., 'I', 'my', 'me', etc.) with '{
 In any text, replace second person pronouns (e.g., 'you', 'your', etc.) with '{ai}'.
 
 Nodes are entity-like.
-Abstract concepts(e.g., personality, preference etc.) should be treated as properties of the nodes.
+Abstract concepts should be treated as properties of the nodes.
 If time is mentioned, time is treated as the properties of relationships (Current Time: {current_time}).
 
 If there is no node and relationship, output is {{Nodes: [], Relationships: []}}.
@@ -69,3 +69,7 @@ In any text, replace second person pronouns (e.g., 'you', 'your', etc.) with '{a
 If there are no entity, output is {{'Entity': []}}.
 Output JSON format is {{'Entity': list(str)}}.
 """
+
+# Nodes are entity-like.
+# Abstract entities should be treated as properties of the nodes.
+# Concrete entities is treated as nodes with spaCy entity label.

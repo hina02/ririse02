@@ -206,6 +206,7 @@ class MessageNode(BaseModel):
 
 
 # Use in Triplet
+# [HACK] spaCy, LLM のStemming, Lemmatizationを検討。
 def remove_suffix(name: str) -> str:
     """正規表現パターンで、接尾語を列挙し、それらを末尾から削除する"""
     jk_suffixes = [

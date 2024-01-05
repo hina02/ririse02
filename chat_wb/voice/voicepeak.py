@@ -5,33 +5,52 @@ import uuid
 import subprocess
 from pathlib import Path
 
-VOICEPEAK_PATH = "C:/Program Files/VOICEPEAK/voicepeak.exe"
+VOICEPEAK_PATH = os.environ.get("VOICEPEAK_PATH")
 
-async def playVoicePeak(script: str, narrator: str = "Asumi Ririse"):
+VOICEPEAK_NARRATOR = {"彩澄りりせ": "Asumi Ririse",
+                      "彩澄しゅお": "Asumi Shuo"
+                      }
+
+NARRATOR_SETTINGS = {
+    "Asumi Shuo": {
+        "happy": 0,
+        "sad": 0,
+        "angry": 0,
+        "fun": 0,
+        "speed": 110,
+        "pitch": 0,
+        "pose": 80
+    },
+    "Asumi Ririse": {
+        "happy": 10,
+        "sad": 0,
+        "angry": 0,
+        "fun": 10,
+        "speed": 125,
+        "pitch": 0,
+        "pose": 30
+    }
+}
+
+async def playVoicePeak(script: str, narrator: str = "彩澄りりせ"):
     """
     任意のテキストをVOICEPEAKのナレーターに読み上げさせる関数
     script: 読み上げるテキスト（文字列）
     narrator: ナレーターの名前（文字列）
     """
 
-    if narrator == "Asumi Shuo":
-        happy = 0
-        sad = 0
-        angry = 0
-        fun = 0
-        speed = 110
-        pitch = 0
-        pose = 80
-    elif narrator == "Asumi Ririse":
-        happy = 10
-        sad = 0
-        angry = 0
-        fun = 10
-        speed = 125
-        pitch = 0
-        pose = 30
-    else:
-        pass
+    # 辞書に一致しない場合、デフォルトのナレーターを設定
+    narrator = VOICEPEAK_NARRATOR.get(narrator, "Asumi Ririse")
+
+    # ナレーターごとの調整値
+    settings = NARRATOR_SETTINGS.get(narrator, {})
+    happy = settings.get("happy", 0)
+    sad = settings.get("sad", 0)
+    angry = settings.get("angry", 0)
+    fun = settings.get("fun", 0)
+    speed = settings.get("speed", 100)
+    pitch = settings.get("pitch", 0)
+    pose = settings.get("pose", 100)
 
     # voicepeak.exeのパス
     exepath = Path(VOICEPEAK_PATH)

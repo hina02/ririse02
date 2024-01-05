@@ -11,7 +11,7 @@ import asyncio
 from fastapi import WebSocket
 from openai import AsyncOpenAI
 from openai_api.models import ChatPrompt
-from chat_wb.voice.text2voice import playVoicePeak
+from chat_wb.voice.voicepeak import playVoicePeak
 from chat_wb.neo4j.triplet import TripletsConverter
 from chat_wb.neo4j.neo4j import get_node, get_node_relationships_between, get_node_relationships
 from chat_wb.neo4j.memory import query_messages, get_messages, get_message_entities
@@ -20,7 +20,7 @@ logger = getLogger(__name__)
 
 
 # 音声合成して、wavファイルのfilepathを返す
-async def get_voice(text: str, narrator: str = "Asumi Ririse"):
+async def get_voice(text: str, narrator: str):
     file_path = await playVoicePeak(script=text, narrator=narrator)
 
     if not file_path:
@@ -210,14 +210,17 @@ class StreamChatClient():
                         else:
                             sentence_end = match.end()
                             sentence = accumulated_text[:sentence_end]
-                            await wb_get_voice(sentence, websocket)
-                            accumulated_text = accumulated_text[sentence_end:]
+                            if len(sentence) > 20:
+                                await wb_get_voice(sentence, websocket, self.AI)
+                                accumulated_text = accumulated_text[sentence_end:]
+                            else:
+                                accumulated_text += sentence
                     else:
                         break
 
         # 残りのテキストを音声合成する。
         if accumulated_text:
-            await wb_get_voice(audio_chunk, websocket)
+            await wb_get_voice(audio_chunk, websocket, self.AI)
 
         logger.info(full_text)
         return full_text
@@ -358,7 +361,7 @@ class StreamChatClient():
     async def wb_generate_audio(self, websocket: WebSocket):
         """テキスト生成から音声合成、再生までを統括する関数"""
         # レスポンス作成前に、user_inputを音声合成して送信
-        await wb_get_voice(self.user_input, websocket, narrator="Asumi Shuo")
+        await wb_get_voice(self.user_input, websocket, narrator=self.user, with_text=False)
 
         # neo4jからのレスポンスを待つ
         if self.retrieved_memory is None:
@@ -459,10 +462,10 @@ async def handle_code_block(code_block_content: str, websocket: WebSocket):
 
 
 # 音声合成
-async def wb_get_voice(text: str, websocket: WebSocket, narrator: str = "Asumi Ririse"):
+async def wb_get_voice(text: str, websocket: WebSocket, narrator: str, with_text: bool = True):
     logger.info(f"get_voice: {text}")
     text = text.replace(".", "、")  # 1. 2. のような箇条書きを、ポーズとして認識可能な1、2、に変換する。
-    audio_path = await get_voice(text, narrator=narrator)
+    audio_path = await get_voice(text, narrator)
 
     # 最大10秒間、ファイルが存在するか確認
     for _ in range(10):
@@ -478,7 +481,7 @@ async def wb_get_voice(text: str, websocket: WebSocket, narrator: str = "Asumi R
         message = {
             "type": "audio",
             "audioData": encoded_audio,
-            "text": text if narrator == "Asumi Ririse" else "",
+            "text": text if with_text else "",
         }  # ここに送りたいテキストをセット
 
         await websocket.send_text(json.dumps(message))  # JSONとして送信
