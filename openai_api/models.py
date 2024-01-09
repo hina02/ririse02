@@ -22,17 +22,16 @@ class ChatPrompt(BaseModel):
     system_message: str
     user_message: str | list[dict]
     assistant_message: str | None = None
-    short_memory: list[TempMemory] | None = None
+    short_memory: list[TempMemory] = []
 
     def create_messages(self) -> list:
         """system, short_memory([user,assistant] * n), user, assistant"""
         messages = []
         messages.append(Message(role="system", content=self.system_message))
         # short_memoryから、user, assistantのメッセージ履歴を取得
-        if self.short_memory is not None:
-            for temp_memory in self.short_memory:
-                messages.append(Message(role="user", content=f"{temp_memory.message.create_time}: {temp_memory.message.user_input}"))
-                messages.append(Message(role="assistant", content=f"{temp_memory.message.ai_response}"))
+        for temp_memory in self.short_memory:
+            messages.append(Message(role="user", content=f"{temp_memory.message.create_time}: {temp_memory.message.user_input}"))
+            messages.append(Message(role="assistant", content=f"{temp_memory.message.ai_response}"))
 
         # 現在のuser, assistantのメッセージを追加
         messages.append(Message(role="user", content=self.user_message))

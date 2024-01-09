@@ -210,9 +210,10 @@ async def query_messages(query: str, k: int = 3, threshold: float = 0.9, time_th
         messages = []
         for record in result:
             message = convert_neo4j_message_to_model(record["node"])
-            score = round(record["score"], 6)
-            logger.info(f"score: {score} message: {message.user_input}")
-            messages.append(message) if message else None
+            if message:
+                score = round(record["score"], 6)
+                logger.info(f"score: {score} message: {message.user_input}")
+                messages.append(message) if message else None
     return messages
 
 

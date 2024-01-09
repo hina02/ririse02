@@ -81,8 +81,7 @@ async def chat_endpoint(
     # StreamChatClientを取得（input_dataを渡し、ここで、user_inputの更新も行う）
     client = await get_stream_chat_client(input_data)
     # store_message用に、former_node_idを指定する。
-    former_node_id = client.latest_message_id
-    input_data.former_node_id = former_node_id
+    input_data.former_node_id = client.latest_message_id
     # メッセージを受信した後、generate_audioを呼び出す
     results = await asyncio.gather(
         client.generate_text(),  # レスポンス、音声合成

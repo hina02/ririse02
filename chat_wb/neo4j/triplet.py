@@ -23,7 +23,7 @@ logger = getLogger(__name__)
 class TripletsConverter():
     """OpenAI APIを用いて、textをtripletsに変換するクラス"""
     def __init__(self, client: AsyncOpenAI | None = None,  user_name: str = "彩澄しゅお", ai_name: str = "彩澄りりせ", time_zone: str = "Asia/Tokyo",
-                 short_memory: list[TempMemory] | None = None):
+                 short_memory: list[TempMemory] = []):
         self.client = AsyncOpenAI() if client is None else client
         self.user_name = user_name
         self.ai_name = ai_name

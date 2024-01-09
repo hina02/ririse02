@@ -63,13 +63,10 @@ Relationships: [{{"start_node", "end_node", "type", "properties"}}]}}.
 
 EXTRACT_ENTITY_PROMPT = """
 Output all entities in JSON format using a single key 'Entity'.
+Entities should be Stemmed and Lemmatized.
 In any text, replace first person pronouns (e.g., 'I', 'my', 'me', etc.) with '{user}'.
 In any text, replace second person pronouns (e.g., 'you', 'your', etc.) with '{ai}'.
 
 If there are no entity, output is {{'Entity': []}}.
 Output JSON format is {{'Entity': list(str)}}.
 """
-
-# Nodes are entity-like.
-# Abstract entities should be treated as properties of the nodes.
-# Concrete entities is treated as nodes with spaCy entity label.

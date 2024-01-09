@@ -51,10 +51,10 @@ async def app_lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=app_lifespan)
 # OpenAI Assistant Routers
-app.include_router(openai_api_router, prefix="/openai_api")
-app.include_router(file_router, prefix="/openai_api")
-app.include_router(assistant_router, prefix="/openai_api")
-app.include_router(run_router, prefix="/openai_api")
+# app.include_router(openai_api_router, prefix="/openai_api")
+# app.include_router(file_router, prefix="/openai_api")
+# app.include_router(assistant_router, prefix="/openai_api")
+# app.include_router(run_router, prefix="/openai_api")
 # Websocket Routers
 app.include_router(wb_router)
 app.include_router(neo4j_router, prefix="/chat_wb")

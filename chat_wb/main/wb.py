@@ -96,9 +96,9 @@ class StreamChatClient():
         if messages:
             node_ids = [message.id for message in messages]
             latest_message_id = node_ids[0]
-        short_memory = get_message_entities(node_ids)
+            short_memory = get_message_entities(node_ids)
 
-        self.latest_message_id = latest_message_id
+            self.latest_message_id = latest_message_id
         self.short_memory = ShortMemory(short_memory=short_memory, limit=self.short_memory_limit)
         self.short_memory.convert_to_tripltets()
 
@@ -210,11 +210,8 @@ class StreamChatClient():
                         else:
                             sentence_end = match.end()
                             sentence = accumulated_text[:sentence_end]
-                            if len(sentence) > 20:
-                                await wb_get_voice(sentence, websocket, self.AI)
-                                accumulated_text = accumulated_text[sentence_end:]
-                            else:
-                                accumulated_text += sentence
+                            await wb_get_voice(sentence, websocket, self.AI)
+                            accumulated_text = accumulated_text[sentence_end:]
                     else:
                         break
 
@@ -371,7 +368,7 @@ class StreamChatClient():
                 await asyncio.sleep(0.3)
 
         # response生成
-        max_tokens = 140
+        max_tokens = 256
         self.ai_response = await self.streamchat(max_tokens, websocket)
 
     # テキスト生成だけを行う関数
@@ -381,7 +378,7 @@ class StreamChatClient():
                 if self.retrieved_memory is not None:
                     break
                 await asyncio.sleep(0.3)
-                max_tokens = 140
+                max_tokens = 256
 
         # response生成
         # prompt生成
@@ -422,7 +419,7 @@ class StreamChatClient():
                 if self.retrieved_memory is not None:
                     break
                 await asyncio.sleep(0.3)
-                max_tokens = 140
+                max_tokens = 256
 
         # response生成
         # prompt生成
