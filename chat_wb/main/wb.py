@@ -1,5 +1,4 @@
 import os
-import sys
 import json
 import re
 import pytz
@@ -193,7 +192,7 @@ class StreamChatClient():
                     if code_block_end != -1:
                         inside_code_block = False
                         code_block = accumulated_text[:code_block_end+3]        # Include the end marker
-                        await handle_code_block(code_block, websocket)
+                        yield "code_block", code_block
                         accumulated_text = accumulated_text[code_block_end+3:]  # Remove processed part
                     # コードブロックを継続
                     else:
@@ -210,7 +209,7 @@ class StreamChatClient():
                         else:
                             sentence_end = match.end()
                             sentence = accumulated_text[:sentence_end]
-                            await wb_get_voice(sentence, websocket, self.AI)
+                            yield "sentence", sentence
                             accumulated_text = accumulated_text[sentence_end:]
                     else:
                         break
@@ -218,11 +217,13 @@ class StreamChatClient():
         # 残りのテキストを音声合成する。
         if accumulated_text:
             await wb_get_voice(audio_chunk, websocket, self.AI)
-
-        logger.info(full_text)
-        return full_text
+        # AIのレスポンスを一時保存
+        self.ai_response = full_text
 
     def close_chat(self, message: MessageNode):
+        # 保存した最新メッセージのidを更新
+        self.latest_message_id = message.id
+
         # user,AIの要素がある場合、Character_settingsに反映する。
         # self.chatacter_settings(user,AIの要素)のうち、self.retrieved_memory.nodesと一致するものを更新する。
         self.character_settings.nodes = [
@@ -360,27 +361,18 @@ class StreamChatClient():
         # レスポンス作成前に、user_inputを音声合成して送信
         await wb_get_voice(self.user_input, websocket, narrator=self.user, with_text=False)
 
-        # neo4jからのレスポンスを待つ
-        if self.retrieved_memory is None:
-            for _ in range(10):  # 通常、1秒以内に取得される。
-                if self.retrieved_memory is not None:
-                    break
-                await asyncio.sleep(0.3)
-
         # response生成
         max_tokens = 256
-        self.ai_response = await self.streamchat(max_tokens, websocket)
+        async for text_type, text in self.streamchat(max_tokens, websocket):
+            if text_type == "sentence":
+                await wb_get_voice(text, websocket, narrator=self.AI)
+            elif text_type == "code_block":
+                await handle_code_block(text, websocket)
 
     # テキスト生成だけを行う関数
     async def wb_generate_text(self, websocket: WebSocket):
-        if self.retrieved_memory is None:
-            for _ in range(10):
-                if self.retrieved_memory is not None:
-                    break
-                await asyncio.sleep(0.3)
-                max_tokens = 256
-
         # response生成
+        max_tokens = 256
         # prompt生成
         messages = self.create_chat_prompt()
         logger.info(f"messages: {messages}")
@@ -399,29 +391,18 @@ class StreamChatClient():
             if chunk.choices[0].delta.content is not None:
                 content = chunk.choices[0].delta.content
                 fulltext += content
-
-                # [HACK] チャンクごとに返す場合のコード
-                # accumulated_text += content
-                # if re.search(r'([\n。！？；]+|\n\n|```)', accumulated_text):
                 message = {
                     "type": "text",
                     "text": content,
                 }
                 await websocket.send_text(json.dumps(message))  # JSONとして送信
-        logger.info(fulltext)
+        # AIのレスポンスを一時保存
         self.ai_response = fulltext
-        return fulltext
 
     # テキスト生成だけを行う関数(非websocket)
     async def generate_text(self):
-        if self.retrieved_memory is None:
-            for _ in range(10):
-                if self.retrieved_memory is not None:
-                    break
-                await asyncio.sleep(0.3)
-                max_tokens = 256
-
         # response生成
+        max_tokens = 256
         # prompt生成
         messages = self.create_chat_prompt()
         logger.info(f"messages: {messages}")
@@ -440,12 +421,10 @@ class StreamChatClient():
         async for chunk in response:
             if chunk.choices[0].delta.content is not None:
                 content = chunk.choices[0].delta.content
-                sys.stdout.write(content)
-                sys.stdout.flush()
                 fulltext += content
-
+                yield content
+        # AIのレスポンスを一時保存
         self.ai_response = fulltext
-        return fulltext
 
 
 # コードブロックテキストをWebSoketで送り返す。

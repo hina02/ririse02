@@ -1,8 +1,9 @@
-from fastapi import APIRouter, WebSocket, Body, Form
+from fastapi import APIRouter, WebSocket, Body, Form, BackgroundTasks
+from fastapi.responses import StreamingResponse
 from logging import getLogger
 import json
 import asyncio
-from chat_wb.main.wb import get_stream_chat_client
+from chat_wb.main.wb import get_stream_chat_client, StreamChatClient
 from chat_wb.neo4j.memory import get_messages, store_message
 from chat_wb.models import WebSocketInputData, Triplets
 
@@ -27,28 +28,24 @@ async def websocket_endpoint(websocket: WebSocket):
     former_node_id = client.latest_message_id
     input_data.former_node_id = former_node_id
 
-    # メイン処理
+    # メイン処理    非同期タスクを開始
+    get_memory_task = asyncio.create_task(client.wb_get_memory(websocket))       # messageをベクタークエリし、関連するnode, relationshipを取得
+    store_memory_task = asyncio.create_task(client.wb_store_memory())   # user_input_entity, short_memory取得、保存
+
+    # クエリの結果を待って、ストリーミングレスポンスを開始
+    await get_memory_task
     if with_voice:
-        await asyncio.gather(
-            client.wb_generate_audio(websocket),  # レスポンス、音声合成
-            client.wb_get_memory(websocket),  # messageをベクタークエリし、関連するnode, relationshipを取得
-            client.wb_store_memory(),  # user_input_entity, short_memory取得、保存
-        )
+        await client.wb_generate_audio(websocket)  # レスポンス、音声合成
     else:
-        await asyncio.gather(
-            client.wb_generate_text(websocket),  # レスポンスのみ
-            client.wb_get_memory(websocket),    # messageをベクタークエリし、関連するnode, relationshipを取得
-            client.wb_store_memory(),  # user_input_entity, short_memory取得、保存
-        )
+        await client.wb_generate_text(websocket)
+    # エンティティ保存の完了を待つ
+    await store_memory_task
 
     # 全ての処理が終了した後で、Neo4jに保存する。
     message = await store_message(
         input_data=input_data,
         ai_response=client.ai_response,
         user_input_entity=client.user_input_entity)
-
-    # 最新のメッセージのidを更新
-    client.latest_message_id = message.id
 
     # memory_turn_overにより、Messageとretrieval_memoryをshort_memoryに格納し、一時的な要素をリセットする。
     client.close_chat(message)
@@ -66,6 +63,7 @@ async def websocket_endpoint(websocket: WebSocket):
 # websocketを使用しない設定
 @wb_router.post("/chat", tags=["memory"])
 async def chat_endpoint(
+    background_tasks: BackgroundTasks,
     title: str = Form(...),
     user: str = Form("彩澄しゅお"),
     AI: str = Form("彩澄りりせ"),
@@ -82,19 +80,27 @@ async def chat_endpoint(
     client = await get_stream_chat_client(input_data)
     # store_message用に、former_node_idを指定する。
     input_data.former_node_id = client.latest_message_id
-    # メッセージを受信した後、generate_audioを呼び出す
-    results = await asyncio.gather(
-        client.generate_text(),  # レスポンス、音声合成
-        client.wb_get_memory(),    # messageをベクタークエリし、関連するnode, relationshipを取得
-        client.wb_store_memory(),  # user_input_entity, short_memory取得、保存
-    )
-    response = results[0]
-    # 全ての処理が終了した後で、Neo4jに保存する。
+    # メッセージを受信した後、非同期タスクを開始。
+    get_memory_task = asyncio.create_task(client.wb_get_memory())
+    store_memory_task = asyncio.create_task(client.wb_store_memory())
+
+    # クエリの結果を待って、ストリーミングレスポンスを開始
+    await get_memory_task
+    response = StreamingResponse(client.generate_text(), media_type="text/plain")
+    # エンティティ保存の完了を待つ
+    await store_memory_task
+
+    # ストリーミングレスポンス終了後に、バックグラウンドタスクを実行
+    background_tasks.add_task(background_task, input_data, client)
+
+    return response
+
+
+async def background_task(input_data: WebSocketInputData, client: StreamChatClient):
+    """会話レスポンス終了後に、Neo4j保存、memory_turn_overの実行を行う。"""
     message = await store_message(
         input_data=input_data,
         ai_response=client.ai_response,
-        user_input_entity=client.user_input_entity)
-    client.latest_message_id = message.id
-    # memory_turn_overし、一時的な要素をリセットする。
-    client.close_chat(message)
-    return response
+        user_input_entity=client.user_input_entity
+    )
+    client.close_chat(message)  # memory_turn_overにより、一時的な要素をリセットする。
