@@ -12,7 +12,7 @@ from openai import AsyncOpenAI
 from openai_api.models import ChatPrompt
 from chat_wb.voice.voicepeak import playVoicePeak
 from chat_wb.neo4j.triplet import TripletsConverter
-from chat_wb.neo4j.neo4j import get_node, get_node_relationships_between, get_node_relationships
+from chat_wb.neo4j.base import Neo4jDataManager
 from chat_wb.neo4j.memory import query_messages, get_messages, get_message_entities
 from chat_wb.models import Triplets, WebSocketInputData, ShortMemory, remove_suffix, MessageNode
 logger = getLogger(__name__)
@@ -67,15 +67,16 @@ class StreamChatClient():
         self.short_memory_limit = 7     # [TODO] User Setting
         self.short_memory_depth = 1     # [TODO] User Setting
         self.short_memory_input_size = 4096  # [TODO] User Setting
+        self.db = Neo4jDataManager()
 
     async def init(self):
         # load character_settings
         # user, AIのノード、両者間のリレーションシップを取得する。
         label = "Person"
         AI, user, relationships = await asyncio.gather(
-            get_node(label, self.AI),
-            get_node(label, self.user),
-            get_node_relationships_between(label, label, self.user, self.AI)
+            self.db.get_node(label, self.AI),
+            self.db.get_node(label, self.user),
+            self.db.get_node_relationships_between(label, label, self.user, self.AI)
         )
         nodes = [node for node in [AI[0], user[0]] if node is not None]
         relationships = relationships if relationships is not None else []
@@ -316,7 +317,7 @@ class StreamChatClient():
         logger.info(f"entities: {entities}")
 
         # entityから、深さn-1までのnode, relationshipを取得する。
-        return await get_node_relationships(names=entities, depth=depth)
+        return await self.db.get_node_relationships(names=entities, depth=depth)
 
     async def _retrieve_entity(self, text: str):
         """user_inputから、深さnまでのentityを抽出する。合計3秒程度。"""
@@ -330,7 +331,7 @@ class StreamChatClient():
             logger.info(f"entities: {entities}")
 
             # entityから、深さnまでのnode, relationshipを取得する。
-            return await get_node_relationships(names=entities, depth=depth)
+            return await self.db.get_node_relationships(names=entities, depth=depth)
 
 # Store memory
     async def wb_store_memory(self):

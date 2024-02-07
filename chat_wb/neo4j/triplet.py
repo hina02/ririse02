@@ -12,7 +12,7 @@ from chat_wb.main.prompt import (
     EXTRACT_ENTITY_PROMPT,
     TEXT_TRIAGER_PROMPT,
 )
-from chat_wb.neo4j.neo4j import create_update_node, create_update_relationship
+from chat_wb.neo4j.base import Neo4jDataManager
 from openai_api.models import ChatPrompt
 from utils.common import atimer
 
@@ -30,6 +30,7 @@ class TripletsConverter():
         self.time_zone = time_zone         # [TODO] User Setting
         self.user_input_type = "question"  # questionの時は、neo4jに保存しない。
         self.short_memory = short_memory    # chat history
+        self.db = Neo4jDataManager()
 
     # triage summerize function
     async def triage_text(self, text: str) -> str:
@@ -181,11 +182,10 @@ class TripletsConverter():
             logger.error("Invalid JSON response")
             return None
 
-    @staticmethod
-    async def store_memory_from_triplet(triplets: Triplets):
+    async def store_memory_from_triplet(self, triplets: Triplets):
         """user_input_entityに基づいて、Neo4jにノード、リレーションシップを保存"""
         for node in triplets.nodes:
-            create_update_node(node)
+            self.db.create_update_node(node)
         if triplets.relationships:
             for relation in triplets.relationships:
-                create_update_relationship(relation)
+                self.db.create_update_relationship(relation)

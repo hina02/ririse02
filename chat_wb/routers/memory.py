@@ -4,8 +4,7 @@ from chat_wb.neo4j.memory import (get_messages, get_titles, query_messages, crea
 from chat_wb.neo4j.triplet import TripletsConverter
 from chat_wb.models import remove_suffix
 from fastapi import APIRouter, Body
-from chat_wb.neo4j.neo4j import get_node_relationships
-from chat_wb.models import Triplets, ShortMemory, Relationships
+from chat_wb.models import Triplets, ShortMemory, Relationship
 
 memory_router = APIRouter()
 
@@ -51,7 +50,7 @@ async def retrieve_entity_api(text: str):
     entities = []
     for entity in user_input_entity:
         entities.append(remove_suffix(entity))
-    return await get_node_relationships(names=entities)
+    # return await get_node_relationships(names=entities)   # [TODO] Neo4jDataManagerを継承する
 
 
 @memory_router.get("/query_messages", tags=["memory"])

@@ -1,7 +1,11 @@
-from chat_wb.cache import (
-    fetch_labels,
-    fetch_relationships,
-)
+from chat_wb.neo4j.driver import Neo4jDriverManager as manager
+
+cache_manager = manager.get_neo4j_cache_manager()
+# global変数の設定（1日に1回（キャッシュのTTLが過ぎるたびに）読み込む（# 初回のデータ取得））
+NODE_LABELS = cache_manager.fetch_labels()
+RELATION_TYPES = cache_manager.fetch_relationships()
+RELATION_SETS = None  # fetch_label_and_relationship_type_sets()
+
 
 # code blockを要約するプロンプト
 CODE_SUMMARIZER_PROMPT = """
@@ -28,21 +32,14 @@ Output json format is here.
 {{"type": "chat" or "code" or "document"}}
 """
 
-# fetch_label_and_relationship_type_sets
-
-NODE_LABELS = fetch_labels()
-RELATION_TYPES = fetch_relationships()
-RELATION_SETS = None  # fetch_label_and_relationship_type_sets()
-
-
 # I,Youを固有名詞に変換する。
 # conference resolution, ellipsis resolution, contextual completionを用い、代名詞の補正等を行う。
 # 質問文の箇所を除外する。抽象的な情報はノードのプロパティとして扱う。
 # Relationship typeはACTIONとSTATICの2種類に分類し、STATICはそのままtypeとする。Actionは通常時間情報を含む。
+# このプロンプトを入れると、ユーザー主体のリレーションシップになりやすくなる。"This is a line spoken by {user} during a chat between {user} and {ai}."
 EXTRACT_TRIPLET_PROMPT = """
 Output JSON format to neo4j without id.
 
-This is a line spoken by {user} during a chat between {user} and {ai}.
 Your task is to apply coreference resolution, ellipsis resolution,
 and contextual completion to the sentence for the correct nodes and relationships to be extracted.
 Exclude sentences that are questions from the nodes and relationships extraction process.
@@ -54,6 +51,8 @@ In any text, replace second person pronouns (e.g., 'you', 'your', etc.) with '{a
 
 Nodes are entity-like.
 Abstract concepts should be treated as properties of the nodes.
+Relationship types should explicitly describe the relationship between the nodes.
+If relationship type is action-like, consider that this text is a line spoken by {user} during a chat between {user} and {ai}.
 If time is mentioned, time is treated as the properties of relationships (Current Time: {current_time}).
 
 If there is no node and relationship, output is {{Nodes: [], Relationships: []}}.

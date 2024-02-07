@@ -9,9 +9,10 @@ logger = getLogger(__name__)
 
 
 class Node(BaseModel):
+    id: int | None = None
     label: str
     name: str
-    properties: dict | None
+    properties: dict[str, list[str]]
 
     @validator('name')
     def validate_name(cls, v):
@@ -29,6 +30,7 @@ class Node(BaseModel):
             return False
         return (self.label, self.name) == (other.label, other.name)
 
+    # [TODO] id追加によるエラーチェック
     @classmethod
     def create(cls, label: str, name: str, properties: dict):
         """LLMで生成されたノードを Node オブジェクトに変換する"""
@@ -53,10 +55,11 @@ class Node(BaseModel):
                 props_list.append(f"{key}: {value_str}")
             props = ', '.join(props_list)
             props = f"{{ {props} }}" if props else ""
-        return f"({self.name}:{self.label} {props})"
+        return f"({self.name}: {self.label} {props})"
 
 
-class Relationships(BaseModel):
+class Relationship(BaseModel):
+    id: int | None = None
     type: str
     start_node: str
     end_node: str
@@ -75,8 +78,8 @@ class Relationships(BaseModel):
         return hash((self.type, self.start_node, self.end_node, self.start_node_label, self.end_node_label))
 
     def __eq__(self, other):
-        """他の Relationships オブジェクトと比較（entityとmatchするために使う）"""
-        if not isinstance(other, Relationships):
+        """他の Relationship オブジェクトと比較（entityとmatchするために使う）"""
+        if not isinstance(other, Relationship):
             return False
         return (
             self.type == other.type and
@@ -86,7 +89,7 @@ class Relationships(BaseModel):
 
     @classmethod
     def create(cls, type: str, start_node: str, end_node: str, properties: dict, start_node_label: str | None, end_node_label: str | None):
-        """LLMで生成された関係を Relationships オブジェクトに変換する"""
+        """LLMで生成された関係を Relationship オブジェクトに変換する"""
         type = type.replace(" ", "_")  # Neo4j don't allow space in type
         start_node = remove_suffix(start_node)
         end_node = remove_suffix(end_node)
@@ -104,7 +107,7 @@ class Relationships(BaseModel):
         if self.properties:
             props = ', '.join([f"{key}: '{value}'" for key, value in self.properties.items()])
             props = f"{{{props}}}"
-        return f"({self.start_node}{start_label})-[r:{self.type} {props}]->({self.end_node}{end_label})"
+        return f"({self.start_node}{start_label})-[{self.type} {props}]->({self.end_node}{end_label})"
 
 
 FIRST_PERSON_PRONOUNS = ["私", "i", "user", "me"]
@@ -113,7 +116,7 @@ SECOND_PERSON_PRONOUNS = ["you"]
 
 class Triplets(BaseModel):
     nodes: list[Node] = []
-    relationships: list[Relationships] = []
+    relationships: list[Relationship] = []
 
     @classmethod
     def create(cls, triplets_data, user_name: str, ai_name: str):
@@ -140,8 +143,8 @@ class Triplets(BaseModel):
             nodes = [node for node in nodes if node is not None]    # Noneを除外
 
         relationships = []
-        if 'Relationships' in triplets_data:
-            for relationship in triplets_data['Relationships']:
+        if 'Relationship' in triplets_data:
+            for relationship in triplets_data['Relationship']:
                 if 'type' in relationship and 'start_node' in relationship and 'end_node' in relationship:
                     # nameが"I","Me"或いは"User"、または"You"の場合、それぞれを"user_name"と"ai_name"に変換
                     start_node = relationship.get('start_node')
@@ -154,14 +157,14 @@ class Triplets(BaseModel):
                         end_node = user_name
                     elif end_node.lower() in SECOND_PERSON_PRONOUNS:
                         end_node = ai_name
-                    # Relationshipsモデルに変換
+                    # Relationshipモデルに変換
                     start_node_label = next((node.label for node in nodes if node.name == start_node), None)
                     end_node_label = next((node.label for node in nodes if node.name == end_node), None)
                     type = relationship.get('type').upper()  # typeを大文字に変換
                     properties = {k.lower(): v for k, v in relationship.get('properties', {}).items()}  # propertiesのキーを小文字に変換
                     try:
                         relationships.append(
-                            Relationships.create(
+                            Relationship.create(
                                 type=type,
                                 start_node=start_node,
                                 end_node=end_node,
@@ -205,6 +208,66 @@ class MessageNode(BaseModel):
     create_time: datetime
 
 
+# WebScoketで受け取るデータのモデル
+class WebSocketInputData(BaseModel):
+    title: str
+    user: str
+    AI: str
+    source: str     # user_id or assistant_id(asst_) # user_id作成時にasst_の使用を禁止する
+    user_input: str
+    former_node_id: int | None = None   # node_idを渡すことで、途中のメッセージに新しいメッセージを追加することができる。使用する場合、フロントで枝分かれの表示方法の実装が必要。
+    with_voice: bool = True
+
+
+class TempMemory(BaseModel):
+    """MessageNodeと、それに紐づくTripletsを保持するクラス"""
+    message: MessageNode                # メッセージの内容
+    triplets: Triplets | None = None    # 長期記憶(from neo4j)
+
+
+class ShortMemory(BaseModel):
+    """TempMemoryのリストを保持し、nodes, relationshipsをsetに変換するクラス"""
+    short_memory: list[TempMemory] = []
+    limit: int = 7
+    nodes_set: set[Node] = set()
+    relationships_set: set[Relationship] = set()
+    triplets: Triplets | None = None
+
+    def convert_to_tripltets(self) -> Triplets | None:
+        # セットに変換（重複を削除）
+        for temp_memory in self.short_memory:
+            if temp_memory.triplets:
+                self.nodes_set.update(temp_memory.triplets.nodes)
+                self.relationships_set.update(temp_memory.triplets.relationships)
+        # Tripletsに変換
+        self.triplets = Triplets(nodes=list(self.nodes_set), relationships=list(self.relationships_set))
+        return self.triplets
+
+    def memory_turn_over(self, message: MessageNode, retrieved_memory: Triplets | None = None):
+        temp_memory = TempMemory(
+            message=message,
+            triplets=retrieved_memory,
+        )
+        logger.info(f"temp_memory: {temp_memory}")
+        # short_memoryに追加
+        self.short_memory.append(temp_memory)
+
+        # short_memoryがlimit(default = 7)個を超えたら、古いものから削除
+        while len(self.short_memory) > self.limit:
+            self.short_memory.pop(0)
+
+        # セットに変換（重複を削除）し、Tripletsに変換
+        self.convert_to_tripltets()
+
+
+class NodeHistory(BaseModel):
+    """Nodeとそれに紐づくMessageNodeを保持するクラス"""
+    node: Node
+    relationships: list[Relationship] = []
+    messages: list[MessageNode] = []
+
+
+
 # Use in Triplet
 # [HACK] spaCy, LLM のStemming, Lemmatizationを検討。
 def remove_suffix(name: str) -> str:
@@ -241,62 +304,3 @@ def remove_suffix(name: str) -> str:
     )
     pattern = r"(" + "|".join(all_suffixes) + ")$"
     return re.sub(pattern, "", name)
-
-
-# WebScoketで受け取るデータのモデル
-class WebSocketInputData(BaseModel):
-    title: str
-    user: str
-    AI: str
-    source: str     # user_id or assistant_id(asst_) # user_id作成時にasst_の使用を禁止する
-    user_input: str
-    former_node_id: int | None = None   # node_idを渡すことで、途中のメッセージに新しいメッセージを追加することができる。使用する場合、フロントで枝分かれの表示方法の実装が必要。
-    with_voice: bool = True
-
-
-class TempMemory(BaseModel):
-    """MessageNodeと、それに紐づくTripletsを保持するクラス"""
-    message: MessageNode                # メッセージの内容
-    triplets: Triplets | None = None    # 長期記憶(from neo4j)
-
-
-class ShortMemory(BaseModel):
-    """TempMemoryのリストを保持し、nodes, relationshipsをsetに変換するクラス"""
-    short_memory: list[TempMemory] = []
-    limit: int = 7
-    nodes_set: set[Node] = set()
-    relationships_set: set[Relationships] = set()
-    triplets: Triplets | None = None
-
-    def convert_to_tripltets(self) -> Triplets | None:
-        # セットに変換（重複を削除）
-        for temp_memory in self.short_memory:
-            if temp_memory.triplets:
-                self.nodes_set.update(temp_memory.triplets.nodes)
-                self.relationships_set.update(temp_memory.triplets.relationships)
-        # Tripletsに変換
-        self.triplets = Triplets(nodes=list(self.nodes_set), relationships=list(self.relationships_set))
-        return self.triplets
-
-    def memory_turn_over(self, message: MessageNode, retrieved_memory: Triplets | None = None):
-        temp_memory = TempMemory(
-            message=message,
-            triplets=retrieved_memory,
-        )
-        logger.info(f"temp_memory: {temp_memory}")
-        # short_memoryに追加
-        self.short_memory.append(temp_memory)
-
-        # short_memoryがlimit(default = 7)個を超えたら、古いものから削除
-        while len(self.short_memory) > self.limit:
-            self.short_memory.pop(0)
-
-        # セットに変換（重複を削除）し、Tripletsに変換
-        self.convert_to_tripltets()
-
-
-class NodeHistory(BaseModel):
-    """Nodeとそれに紐づくMessageNodeを保持するクラス"""
-    node: Node
-    relationships: list[Relationships] = []
-    messages: list[MessageNode] = []

@@ -4,7 +4,7 @@ from datetime import datetime
 from logging import getLogger
 from functools import lru_cache
 from chat_wb.models import WebSocketInputData, Triplets, TempMemory, MessageNode, NodeHistory
-from chat_wb.neo4j.neo4j import convert_neo4j_node_to_model, convert_neo4j_relationship_to_model, convert_neo4j_message_to_model
+from chat_wb.neo4j.utils import convert_neo4j_node_to_model, convert_neo4j_relationship_to_model, convert_neo4j_message_to_model
 from openai_api.common import get_embedding
 
 # ロガー設定
