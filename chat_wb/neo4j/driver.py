@@ -2,6 +2,7 @@ import os
 from neo4j import GraphDatabase, Driver
 from .base import Neo4jDataManager
 from .cache import Neo4jCacheManager
+from .index import Neo4jIndexManager
 from .integrator import Neo4jNodeIntegrator
 from .memory import Neo4jMemoryService
 
@@ -58,3 +59,8 @@ class Neo4jDriverManager:
     def get_neo4j_memory_service(cls, user_id: str = "local") -> Neo4jMemoryService:
         driver = cls.get_connection(user_id)
         return Neo4jMemoryService(driver)
+
+    @classmethod
+    def get_neo4j_index_manager(cls, user_id: str = "local") -> Neo4jIndexManager:
+        driver = cls.get_connection(user_id)
+        return Neo4jIndexManager(driver)

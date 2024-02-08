@@ -65,3 +65,15 @@ async def query_messages(query: str,
 async def pursue_node_update_history(label: str, name: str,
                                      db: Neo4jMemoryService = Depends(driver.get_neo4j_memory_service)):
     return await db.pursue_node_update_history(label, name)
+
+
+# show index
+@memory_router.get("/show_index", tags=["index"])
+def show_index(type: str | None = None,
+               db: Neo4jMemoryService = Depends(driver.get_neo4j_memory_service)):
+    return db.show_index(type)
+
+# check index
+@memory_router.get("/check_index", tags=["index"])
+def check_index(db: Neo4jMemoryService = Depends(driver.get_neo4j_memory_service)):
+    return db.check_index()

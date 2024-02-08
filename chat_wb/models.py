@@ -8,6 +8,15 @@ from datetime import datetime
 logger = getLogger(__name__)
 
 
+class Neo4jIndex(BaseModel):
+    """Neo4j Show Index Response Schema"""
+    name: str
+    type: str
+    labelsOrTypes: list[str] | None
+    properties: list[str] | None
+    options: dict | None
+
+
 class Node(BaseModel):
     id: int | None = None
     label: str
