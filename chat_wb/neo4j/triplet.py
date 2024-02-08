@@ -12,7 +12,7 @@ from chat_wb.main.prompt import (
     EXTRACT_ENTITY_PROMPT,
     TEXT_TRIAGER_PROMPT,
 )
-from chat_wb.neo4j.base import Neo4jDataManager
+from chat_wb.neo4j import Neo4jDriverManager, Neo4jDataManager
 from openai_api.models import ChatPrompt
 from utils.common import atimer
 
@@ -20,7 +20,7 @@ from utils.common import atimer
 logger = getLogger(__name__)
 
 
-class TripletsConverter():
+class TripletsConverter:
     """OpenAI APIを用いて、textをtripletsに変換するクラス"""
     def __init__(self, client: AsyncOpenAI | None = None,  user_name: str = "彩澄しゅお", ai_name: str = "彩澄りりせ", time_zone: str = "Asia/Tokyo",
                  short_memory: list[TempMemory] = []):
@@ -30,7 +30,7 @@ class TripletsConverter():
         self.time_zone = time_zone         # [TODO] User Setting
         self.user_input_type = "question"  # questionの時は、neo4jに保存しない。
         self.short_memory = short_memory    # chat history
-        self.db = Neo4jDataManager()
+        self.db: Neo4jDataManager = Neo4jDriverManager.get_neo4j_data_manager()
 
     # triage summerize function
     async def triage_text(self, text: str) -> str:
@@ -185,7 +185,8 @@ class TripletsConverter():
     async def store_memory_from_triplet(self, triplets: Triplets):
         """user_input_entityに基づいて、Neo4jにノード、リレーションシップを保存"""
         for node in triplets.nodes:
-            self.db.create_update_node(node)
+            await self.db.create_update_node(node)
+        print(f"triplets.relationships: {triplets.relationships}")
         if triplets.relationships:
             for relation in triplets.relationships:
-                self.db.create_update_relationship(relation)
+                await self.db.create_update_relationship(relation)

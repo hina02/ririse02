@@ -33,9 +33,16 @@ class Node(BaseModel):
     # [TODO] id追加によるエラーチェック
     @classmethod
     def create(cls, label: str, name: str, properties: dict):
-        """LLMで生成されたノードを Node オブジェクトに変換する"""
+        """Convert LLM generated nodes to 'Node' object"""
         label = label.replace(" ", "_")  # Neo4j don't allow space in label
         name = remove_suffix(name)
+
+        # convert LLM generated properties to dict[str|list[str]]
+        for key, value in properties.items():
+            if not isinstance(value, list):
+                properties[key] = [str(value)]
+            else:
+                properties[key] = [str(v) for v in value]
         return cls(label=label, name=name, properties=properties)
 
     def to_cypher(self) -> str:
@@ -63,7 +70,7 @@ class Relationship(BaseModel):
     type: str
     start_node: str
     end_node: str
-    properties: dict | None
+    properties: dict[str, list[str]]
     start_node_label: str | None
     end_node_label: str | None
 
@@ -89,12 +96,18 @@ class Relationship(BaseModel):
 
     @classmethod
     def create(cls, type: str, start_node: str, end_node: str, properties: dict, start_node_label: str | None, end_node_label: str | None):
-        """LLMで生成された関係を Relationship オブジェクトに変換する"""
+        """Convert LLM generated relationships to 'Relationship' object"""
         type = type.replace(" ", "_")  # Neo4j don't allow space in type
         start_node = remove_suffix(start_node)
         end_node = remove_suffix(end_node)
         if not type or not start_node or not end_node:
             return None
+        # convert LLM generated properties to dict[str|list[str]]
+        for key, value in properties.items():
+            if not isinstance(value, list):
+                properties[key] = [str(value)]
+            else:
+                properties[key] = [str(v) for v in value]
         return cls(type=type, start_node=start_node, end_node=end_node, properties=properties,
                    start_node_label=start_node_label, end_node_label=end_node_label)
 
@@ -107,7 +120,7 @@ class Relationship(BaseModel):
         if self.properties:
             props = ', '.join([f"{key}: '{value}'" for key, value in self.properties.items()])
             props = f"{{{props}}}"
-        return f"({self.start_node}{start_label})-[{self.type} {props}]->({self.end_node}{end_label})"
+        return f"({self.start_node}{start_label})-[{self.type}{props}]->({self.end_node}{end_label})"
 
 
 FIRST_PERSON_PRONOUNS = ["私", "i", "user", "me"]
@@ -143,8 +156,8 @@ class Triplets(BaseModel):
             nodes = [node for node in nodes if node is not None]    # Noneを除外
 
         relationships = []
-        if 'Relationship' in triplets_data:
-            for relationship in triplets_data['Relationship']:
+        if 'Relationships' in triplets_data:
+            for relationship in triplets_data['Relationships']:
                 if 'type' in relationship and 'start_node' in relationship and 'end_node' in relationship:
                     # nameが"I","Me"或いは"User"、または"You"の場合、それぞれを"user_name"と"ai_name"に変換
                     start_node = relationship.get('start_node')
@@ -198,6 +211,14 @@ class Triplets(BaseModel):
         return json.dumps(cypher_data, ensure_ascii=False)
 
 
+class SceneNode(BaseModel):
+    id: int
+    scene: str
+    create_time: datetime
+    update_time: datetime
+    # [TODO] 他の属性を追加
+
+
 class MessageNode(BaseModel):
     id: int
     source: str
@@ -210,7 +231,7 @@ class MessageNode(BaseModel):
 
 # WebScoketで受け取るデータのモデル
 class WebSocketInputData(BaseModel):
-    title: str
+    scene: str
     user: str
     AI: str
     source: str     # user_id or assistant_id(asst_) # user_id作成時にasst_の使用を禁止する

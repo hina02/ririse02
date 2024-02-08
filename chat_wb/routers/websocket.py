@@ -4,7 +4,6 @@ from logging import getLogger
 import json
 import asyncio
 from chat_wb.main.wb import get_stream_chat_client, StreamChatClient
-from chat_wb.neo4j.memory import get_messages, store_message
 from chat_wb.models import WebSocketInputData, Triplets
 
 logger = getLogger(__name__)
@@ -15,14 +14,14 @@ wb_router = APIRouter()
 # websocketの設定
 @wb_router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    await websocket.accept()  # 接続を受け入れる
+    await websocket.accept()
     # クライアントからのJSONメッセージを待つ
     data = await websocket.receive_text()
     input_data = WebSocketInputData.model_validate_json(data)
     with_voice = input_data.with_voice
 
     # StreamChatClientを取得（input_dataを渡し、ここで、user_inputの更新も行う）
-    client = await get_stream_chat_client(input_data)
+    client: StreamChatClient = await get_stream_chat_client(input_data)
 
     # store_message用に、former_node_idを指定する。
     former_node_id = client.latest_message_id
@@ -41,18 +40,12 @@ async def websocket_endpoint(websocket: WebSocket):
     # エンティティ保存の完了を待つ
     await store_memory_task
 
-    # 全ての処理が終了した後で、Neo4jに保存する。
-    message = await store_message(
-        input_data=input_data,
-        ai_response=client.ai_response,
-        user_input_entity=client.user_input_entity)
-
-    # memory_turn_overにより、Messageとretrieval_memoryをshort_memoryに格納し、一時的な要素をリセットする。
-    client.close_chat(message)
+    # After chat response and store entity, store Message to Neo4j and close chat (memory_turn_over).
+    await client.store_message_and_close_chat(input_data)
 
     # websocketにshort_memory.triplets(nodes, relationshipsのset)を渡して、closeメッセージを送信する
     message = {"type": "close",
-               "node_id": message.id,
+               "node_id": client.latest_message_id,
                "short_memory": client.short_memory.triplets.model_dump_json()}
     await websocket.send_text(json.dumps(message))
 
@@ -64,13 +57,13 @@ async def websocket_endpoint(websocket: WebSocket):
 @wb_router.post("/chat", tags=["memory"])
 async def chat_endpoint(
     background_tasks: BackgroundTasks,
-    title: str = Form(...),
+    scene: str = Form(...),
     user: str = Form("彩澄しゅお"),
     AI: str = Form("彩澄りりせ"),
     user_input: str = Form(...),
 ):
     input_data = WebSocketInputData(
-        title=title,
+        scene=scene,
         user=user,
         AI=AI,
         source=user,
@@ -90,17 +83,12 @@ async def chat_endpoint(
     # エンティティ保存の完了を待つ
     await store_memory_task
 
-    # ストリーミングレスポンス終了後に、バックグラウンドタスクを実行
+    # After chat response and store entity, run background task
     background_tasks.add_task(background_task, input_data, client)
 
     return response
 
 
 async def background_task(input_data: WebSocketInputData, client: StreamChatClient):
-    """会話レスポンス終了後に、Neo4j保存、memory_turn_overの実行を行う。"""
-    message = await store_message(
-        input_data=input_data,
-        ai_response=client.ai_response,
-        user_input_entity=client.user_input_entity
-    )
-    client.close_chat(message)  # memory_turn_overにより、一時的な要素をリセットする。
+    """After chat response, store Message to Neo4j and close chat (memory_turn_over)."""
+    await client.store_message_and_close_chat(input_data)  # memory_turn_overにより、一時的な要素をリセットする。

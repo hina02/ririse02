@@ -7,13 +7,13 @@ from .utils import convert_neo4j_node_to_model, convert_neo4j_relationship_to_mo
 logger = getLogger(__name__)
 
 
-class Neo4jDataManager():
+class Neo4jDataManager:
     def __init__(self, driver: Driver):
         self.driver = driver
 
 # Node
     def get_node(self, node: Node) -> list[Node]:
-        "Title, Messageを除く、指定したラベルのノードを取得する。"
+        "Scene, Messageを除く、指定したラベルのノードを取得する。"
         query = f"""
                 MATCH (n:{node.label})
                 WHERE n.name = $name OR $name IN n.name_variation
@@ -27,21 +27,21 @@ class Neo4jDataManager():
             nodes = [convert_neo4j_node_to_model(record["n"]) for record in result]
             return nodes
 
-    def create_update_node(self, node: Node) -> int | None:
+    async def create_update_node(self, node: Node) -> int | None:
         result = self.get_node(node)
         if result:
             # [HACK] label, nameが一意であることを前提とする
             if node.properties:
-                self.update_node(result[0], node.properties)  # match node and new properties
+                await self.update_node(result[0], node.properties)  # match node and new properties
                 logger.info(f"Updated node {result[0].to_cypher()}")
             else:
                 pass
         else:
-            node = self.create_node(node)
+            node = await self.create_node(node)
             logger.info(f"Created node with id {node.id}")
             return node.id
 
-    def update_node(self, node: Node, properties: dict[str, list[str]]) -> None:
+    async def update_node(self, node: Node, properties: dict[str, list[str]]) -> None:
         """if node and properties, append node properties without overwrite."""
         properties.pop("name", None)
         for key, new_values in properties.items():
@@ -63,7 +63,7 @@ class Neo4jDataManager():
         with self.driver.session() as session:
             session.run(query, params)
 
-    def create_node(self, node: Node) -> Node:
+    async def create_node(self, node: Node) -> Node:
         """if no node, create node."""
         node.properties["name"] = node.name
         query = f"""
@@ -124,7 +124,7 @@ class Neo4jDataManager():
                 WITH collect(start) as starts
                 UNWIND starts as start
                     OPTIONAL MATCH path = (start)-[r*1..{depth}]-(end)
-                    WHERE NONE(node IN nodes(path) WHERE 'Message' IN labels(node) OR 'Title' IN labels(node))
+                    WHERE NONE(node IN nodes(path) WHERE 'Message' IN labels(node) OR 'Scene' IN labels(node))
 
                 UNWIND r as rel
                 RETURN starts,
@@ -150,37 +150,27 @@ class Neo4jDataManager():
                 triplets = Triplets(nodes=nodes, relationships=relationships)
                 return triplets
 
-    async def get_node_relationships_between(self, node1: Node, node2: Node) -> (
-            Node | None, Node | None, list[Relationship]):
+    async def get_node_relationships_between(self, node1: Node, node2: Node) -> list[Relationship]:
         query = f"""
                 MATCH (a:{node1.label})-[r]-(b:{node2.label})
                 WHERE ($name1 IN a.name_variation OR a.name = $name1)
                     AND ($name2 IN b.name_variation OR b.name = $name2)
-                RETURN a as node1, b as node2, r
+                RETURN a, r, b
                 """
         params = {"name1": node1.name, "name2": node2.name}
 
         with self.driver.session() as session:
             result = session.run(query, params)
 
-            # nodeもrelationshipもmatchしない場合、None, None, []が返る
-            node1 = None
-            node2 = None
-            relationships = []
-            for record in result:
-                node1 = convert_neo4j_node_to_model(record["node1"])
-                node2 = convert_neo4j_node_to_model(record["node2"])
-                relation = convert_neo4j_relationship_to_model(record["r"])
-                relationships.append(relation)
-            return node1, node2, relationships
+            relationships = [convert_neo4j_relationship_to_model(record["r"]) for record in result]
+            return relationships
 
     async def create_update_relationship(self, relationship: Relationship) -> None:
         # search existing nodes and relationships
         query_node1 = Node(label=relationship.start_node_label, name=relationship.start_node, properties={})
         query_node2 = Node(label=relationship.end_node_label, name=relationship.end_node, properties={})
-        node1, node2, rels = await self.get_node_relationships_between(query_node1, query_node2)
+        rels = await self.get_node_relationships_between(query_node1, query_node2)
         match = False
-
         # check if relationship type is already exist
         for rel in rels:
             if rel.type == relationship.type and rel.start_node == relationship.start_node and rel.end_node == relationship.end_node:
@@ -195,15 +185,12 @@ class Neo4jDataManager():
 
         # if not match, create new relationship
         else:
-            # if node1 is None, create new node1
-            if node1 is None:
-                node1 = self.create_node(query_node1)
-            # if node2 is None, create new node2
-            if node2 is None:
-                node2 = self.create_node(query_node2)
+            # relsが空の場合、node1, node2が存在しない可能性があるため、作成する
+            node1 = await self.create_node(query_node1)
+            node2 = await self.create_node(query_node2)
             # create new relationship with node_id
-            await self.create_relationship(node1.id, node2.id, relationship)
-            logger.info(f"Relationship {relationship.to_cypher()} created.")
+            result = await self.create_relationship(node1.id, node2.id, relationship)
+            logger.info(f"Relationship {result.to_cypher()} created.")
 
     async def update_relationship(self, relationship: Relationship) -> None:
         # [TODO] Node同様にlist追加型を検討
@@ -217,12 +204,13 @@ class Neo4jDataManager():
         with self.driver.session() as session:
             session.run(query, params)
 
-    async def create_relationship(self, node1_id: int, node2_id: int, relationship: Relationship) -> None:
+    async def create_relationship(self, node1_id: int, node2_id: int, relationship: Relationship) -> Relationship:
         query = f"""
                 MATCH (a), (b)
                 WHERE id(a) = $node1_id AND id(b) = $node2_id
                 CREATE (a)-[r:{relationship.type}]->(b)
                 SET r = $properties
+                return a, r, b
                 """
         params = {
             "node1_id": node1_id,
@@ -231,7 +219,8 @@ class Neo4jDataManager():
         }
 
         with self.driver.session() as session:
-            session.run(query, params)
+            record = session.run(query, params).single()
+            return convert_neo4j_relationship_to_model(record["r"])
 
     async def delete_relationship(self, relationship: Relationship) -> None:
         query = """

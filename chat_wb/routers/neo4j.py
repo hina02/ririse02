@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Body, Depends, HTTPException
 from logging import getLogger
 import json
-from chat_wb.neo4j.driver import Neo4jDriverManager as driver, Neo4jDataManager, Neo4jCacheManager, Neo4jNodeIntegrator
+from chat_wb.neo4j import Neo4jDriverManager as driver, Neo4jDataManager, Neo4jCacheManager, Neo4jNodeIntegrator
 from chat_wb.models import Node, Relationship
 
 logger = getLogger(__name__)
@@ -38,7 +38,7 @@ def get_node_names(label: str,
 
 @neo4j_router.get("/all_node_names", tags=["cache"])
 def get_all_node_names(cache: Neo4jCacheManager = Depends(driver.get_neo4j_cache_manager)) -> list[Node]:
-    """get all node names with label except Message and Title."""
+    """get all node names with label except Message and Scene."""
     return cache.get_all_nodes()
 
 
@@ -96,7 +96,7 @@ async def get_node_relationships_between(label1: str, name1: str, label2: str, n
     """get relationships between node1 and node2"""
     node1 = Node(label=label1, name=name1, properties={})
     node2 = Node(label=label2, name=name2, properties={})
-    _, _, relationships = await db.get_node_relationships_between(node1, node2)
+    relationships = await db.get_node_relationships_between(node1, node2)
     return relationships
 
 

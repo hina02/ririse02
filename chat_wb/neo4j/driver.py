@@ -3,7 +3,7 @@ from neo4j import GraphDatabase, Driver
 from .base import Neo4jDataManager
 from .cache import Neo4jCacheManager
 from .integrator import Neo4jNodeIntegrator
-
+from .memory import Neo4jMemoryService
 
 USER_CONFIG_MAP = {
     "local": {
@@ -35,10 +35,10 @@ class Neo4jDriverManager:
                     config["uri"], auth=(config["username"], config["password"]))
             return cls.connection_cache[connection_key]
         else:
-            # 適切なエラーハンドリングをここに追加（例: 設定が見つからない場合の処理）
             raise Exception("Database configuration not found for user_id: {}".format(user_id))
 
     # データベース接続情報を選択し、Neo4jDataManagerインスタンスを生成する依存性関数
+    # [TODO] user_id: Optional[str] = Header(None) でユーザーIDを取得する
     @classmethod
     def get_neo4j_data_manager(cls, user_id: str = "local") -> Neo4jDataManager:
         driver = cls.get_connection(user_id)
@@ -53,3 +53,8 @@ class Neo4jDriverManager:
     def get_neo4j_node_integrator(cls, user_id: str = "local") -> Neo4jNodeIntegrator:
         driver = cls.get_connection(user_id)
         return Neo4jNodeIntegrator(driver)
+
+    @classmethod
+    def get_neo4j_memory_service(cls, user_id: str = "local") -> Neo4jMemoryService:
+        driver = cls.get_connection(user_id)
+        return Neo4jMemoryService(driver)

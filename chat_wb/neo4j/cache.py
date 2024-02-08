@@ -23,7 +23,7 @@ class Neo4jCacheManager:
 
     def get_node_names(self, label: str) -> list[str]:
         # error handling
-        if label == "Title" or label == "Message":
+        if label == "Scene" or label == "Message":
             return []
 
         # main process
@@ -75,11 +75,11 @@ class Neo4jCacheManager:
         return sets
 
     def get_all_nodes(self) -> list[Node]:
-        """Get all nodes except 'Title' and 'Message'. Only return label and name."""
+        """Get all nodes except 'Scene' and 'Message'. Only return label and name."""
         nodes = self.cache.get("all_nodes")
         query = """
                 MATCH (n)
-                WHERE NOT 'Title' IN labels(n)
+                WHERE NOT 'Scene' IN labels(n)
                     AND NOT 'Message' IN labels(n)
                 RETURN labels(n) as label, n.name as name
                 """
@@ -91,13 +91,13 @@ class Neo4jCacheManager:
         return nodes
 
     def get_all_relationships(self) -> list[Relationship]:
-        """Get all relationships except 'Title' and 'Message'. Only return type, start_node, end_node."""
+        """Get all relationships except 'Scene' and 'Message'. Only return type, start_node, end_node."""
         relationships = self.cache.get("all_relationships")
         query = """
                 MATCH (n)-[r]->(m)
-                WHERE NOT 'Title' IN labels(n)
+                WHERE NOT 'Scene' IN labels(n)
                     AND NOT 'Message' IN labels(n)
-                    AND NOT 'Title' IN labels(m)
+                    AND NOT 'Scene' IN labels(m)
                     AND NOT 'Message' IN labels(m)
                 RETURN type(r) AS type, n.name as start_node, m.name as end_node
                 """

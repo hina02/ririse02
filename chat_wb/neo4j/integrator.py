@@ -1,7 +1,6 @@
 from logging import getLogger
-from chat_wb.models import Node, Relationship
+from chat_wb.models import Node
 from .base import Neo4jDataManager
-from .utils import convert_neo4j_relationship_to_model
 
 # ロガー設定
 logger = getLogger(__name__)
@@ -22,12 +21,16 @@ class Neo4jNodeIntegrator(Neo4jDataManager):
             return
 
         # main process
-        name_variation = self.integrate_node_names(node1, node2)
-        logger.info(f"Integrated node1 name variation: {name_variation}")
+        integrated_props = self.integrate_node_names(node1, node2)
+        node1.properties = integrated_props
+        name_variation = integrated_props["name_variation"]
+        logger.info(f"Integrated node name variation: {name_variation}")
+
         properties = self.integrate_node_properties(node1, node2)
-        logger.info(f"Integrated node1 properties: {properties}")
-        relationships = self.integrate_relationships(node1, node2)
-        logger.info(f"Integrated node1 relationships: {relationships}")
+        logger.info(f"Integrated node properties: {properties}")
+
+        self.integrate_relationships(node1, node2)
+        logger.info("Integrated node relationships")
 
     def integrate_node_names(self, node1: Node, node2: Node) -> list[str]:
         """Integrate name and name variations of 2 nodes to node1."""
@@ -45,14 +48,13 @@ class Neo4jNodeIntegrator(Neo4jDataManager):
         params = {"node1_id": node1.id, "node2_id": node2.id}
         with self.driver.session() as session:
             result = session.run(query, params).single()
-            return result["properties"].get("name_variation")
+            return result["properties"]
 
     def integrate_node_properties(self, node1: Node, node2: Node) -> dict[str, list[str]]:
         """Integrate properties of 2 nodes to node1."""
         props1 = node1.properties
         props2 = node2.properties
-        print(f"props1: {props1}")
-        print(f"props2: {props2}")
+
         # Integrate the same key values into list
         for key in set(props1.keys()).union(props2.keys()):
             if key != "name":  # skip 'name' property
@@ -61,7 +63,7 @@ class Neo4jNodeIntegrator(Neo4jDataManager):
                 elif key in props2:
                     props1[key] = props2[key]   # key only exists in props2
         props1["name"] = node1.name  # keep the original name
-        print(f"props1: {props1}")
+
         query = """
                 MATCH (n1)
                 WHERE id(n1) = $node1_id
@@ -74,32 +76,27 @@ class Neo4jNodeIntegrator(Neo4jDataManager):
             result = session.run(query, params).single()
             return result["properties"]
 
-    def integrate_relationships(self, node1: Node, node2: Node) -> list[Relationship]:
+    def integrate_relationships(self, node1: Node, node2: Node):
         """Integrate relationships of 2 nodes to node1."""
-        query = """
+        query1 = """
                 MATCH (n2)-[r]->(m)
                 WHERE id(n2) = $node2_id
                 MATCH (n1)
                 WHERE id(n1) = $node1_id
                 CALL apoc.refactor.from(r, n1)
                 YIELD input, output
-                RETURN input, output
+                RETURN output
                 """
-        params = {"node1_id": node1.id, "node2_id": node2.id}
-        with self.driver.session() as session:
-            result1 = session.run(query, params)
-            relationships1 = [convert_neo4j_relationship_to_model(record["output"]) for record in result1]
-
-        query = """
+        query2 = """
                 MATCH (n2)<-[r]-(m)
                 WHERE id(n2) = $node2_id
                 MATCH (n1)
                 WHERE id(n1) = $node1_id
                 CALL apoc.refactor.to(r, n1)
                 YIELD input, output
-                RETURN input, output
+                RETURN output
                 """
+        params = {"node1_id": node1.id, "node2_id": node2.id}
         with self.driver.session() as session:
-            result2 = session.run(query, params)
-            relationships2 = [convert_neo4j_relationship_to_model(record["output"]) for record in result2]
-            return relationships1 + relationships2
+            session.run(query1, params)
+            session.run(query2, params)

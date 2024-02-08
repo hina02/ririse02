@@ -11,10 +11,8 @@ from fastapi import WebSocket
 from openai import AsyncOpenAI
 from openai_api.models import ChatPrompt
 from chat_wb.voice.voicepeak import playVoicePeak
-from chat_wb.neo4j.triplet import TripletsConverter
-from chat_wb.neo4j.base import Neo4jDataManager
-from chat_wb.neo4j.memory import query_messages, get_messages, get_message_entities
-from chat_wb.models import Triplets, WebSocketInputData, ShortMemory, remove_suffix, MessageNode
+from chat_wb.neo4j import Neo4jDriverManager, Neo4jMemoryService, TripletsConverter
+from chat_wb.models import Triplets, WebSocketInputData, ShortMemory, remove_suffix, MessageNode, Node
 logger = getLogger(__name__)
 
 
@@ -34,28 +32,31 @@ async def get_voice(text: str, narrator: str):
 stream_chat_clients = {}
 
 
+# [TODO] speaker, listenerの設定を行うには、この制御を調整する必要がある。
+# [TODO] user_idの受け渡しもここで。
 async def get_stream_chat_client(input_data: WebSocketInputData):
-    title = input_data.title
-    if title not in stream_chat_clients:
-        stream_chat_clients[title] = StreamChatClient(input_data)
+    scene = input_data.scene
+    if scene not in stream_chat_clients:
+        stream_chat_clients[scene] = StreamChatClient(input_data)
         # 初期化時に、character_settings, short_memoryの読み込みを行う。
-        await stream_chat_clients[title].init()
+        await stream_chat_clients[scene].init()
     else:
-        stream_chat_clients[title].set_user_input(input_data.user_input)
-    return stream_chat_clients[title]
+        stream_chat_clients[scene].set_user_input(input_data.user_input)
+    return stream_chat_clients[scene]
 
 
 # AIの会話応答を行うするクラス
 class StreamChatClient():
+    # [TODO] 処理の流れをdocstringに記載する
     def __init__(self, input_data: WebSocketInputData) -> None:
         self.time_zone = "Asia/Tokyo"   # [TODO] User Setting
         self.current_time = datetime.now(pytz.timezone(self.time_zone)).strftime("%Y-%m-%d %H:%M:%S")
         self.location = "Yokohama"      # [TODO] User node properties and AI node properties
-        self.user = input_data.user
-        self.AI = input_data.AI
+        self.user = input_data.user     # [TODO] -> speaker
+        self.AI = input_data.AI         # [TODO] -> listener
         self.character_settings: Triplets
         self.character_name_lsit: list[str] | None = None   # user, AIのname_variationを含めたname_list
-        self.title = input_data.title
+        self.scene = input_data.scene
         self.latest_message_id: int | None = None   # store_messageで、former_node_idを指定するために使用
         self.client = AsyncOpenAI()
         self.user_input: str = input_data.user_input
@@ -67,16 +68,22 @@ class StreamChatClient():
         self.short_memory_limit = 7     # [TODO] User Setting
         self.short_memory_depth = 1     # [TODO] User Setting
         self.short_memory_input_size = 4096  # [TODO] User Setting
-        self.db = Neo4jDataManager()
+        self.set_user_id("local")   # [DEV] test settings
+
+    def set_user_id(self, user_id: str):
+        """Configure user_id for the Neo4jDriver."""
+        self.user_id = user_id
+        self.db: Neo4jMemoryService = Neo4jDriverManager.get_neo4j_memory_service(self.user_id)
 
     async def init(self):
         # load character_settings
         # user, AIのノード、両者間のリレーションシップを取得する。
-        label = "Person"
+        user_node = Node(label="User", name=self.user, properties={})
+        AI_node = Node(label="AI", name=self.AI, properties={})
         AI, user, relationships = await asyncio.gather(
-            self.db.get_node(label, self.AI),
-            self.db.get_node(label, self.user),
-            self.db.get_node_relationships_between(label, label, self.user, self.AI)
+            self.db.get_node(user_node),
+            self.db.get_node(AI_node),
+            self.db.get_node_relationships_between(user_node, AI_node)
         )
         nodes = [node for node in [AI[0], user[0]] if node is not None]
         relationships = relationships if relationships is not None else []
@@ -92,11 +99,11 @@ class StreamChatClient():
 
         # load short_memory
         short_memory = []
-        messages = get_messages(self.title, n=self.short_memory_limit)
+        messages = self.db.get_messages(self.scene, n=self.short_memory_limit)
         if messages:
             node_ids = [message.id for message in messages]
             latest_message_id = node_ids[0]
-            short_memory = get_message_entities(node_ids)
+            short_memory = self.db.get_message_entities(node_ids)
 
             self.latest_message_id = latest_message_id
         self.short_memory = ShortMemory(short_memory=short_memory, limit=self.short_memory_limit)
@@ -114,7 +121,8 @@ class StreamChatClient():
         character_settings_prompt = self.character_settings.model_dump_json()
 
         character_prompt = f"""
-        You are to simulate the game character that the young girl named {self.AI}, that have conversation with the player named {self.user}.
+        You are to simulate the game character that the young girl named {self.AI},
+        that have conversation with the player named {self.user}.
         Output the line of {self.AI} without character name.
         If the relationship has "Scenario Flag" type, you must start the scenario by following the instructions in the properties.
         ----------------------------------------
@@ -221,6 +229,13 @@ class StreamChatClient():
         # AIのレスポンスを一時保存
         self.ai_response = full_text
 
+    async def store_message_and_close_chat(self, input_data: WebSocketInputData):
+        message: MessageNode = await self.db.store_message(
+                                input_data=input_data,
+                                ai_response=self.ai_response,
+                                user_input_entity=self.user_input_entity)
+        self.close_chat(message)
+
     def close_chat(self, message: MessageNode):
         # 保存した最新メッセージのidを更新
         self.latest_message_id = message.id
@@ -246,7 +261,7 @@ class StreamChatClient():
         # user_input_entity、retrieved_memoryをリセット
         self.user_input_entity = None
         self.retrieved_memory = None
-        logger.debug(f"client title: {self.title}")
+        logger.debug(f"client scene: {self.scene}")
         logger.debug(f"short_memory: {self.short_memory.short_memory}")
 
     def _contain_terminal_symbol(self, text):
@@ -275,8 +290,16 @@ class StreamChatClient():
             self._retrieve_message_entity(self.user_input),
             self._retrieve_entity(self.user_input)
         )
-        logger.info(f"message_retrieved_memory: {len(message_retrieved_memory.nodes)} nodes, {len(message_retrieved_memory.relationships)} relationships" if message_retrieved_memory else "message_retrieved_memory: None")
-        logger.info(f"entity_retrieved_memory: {len(entity_retrieved_memory.nodes)} nodes, {len(entity_retrieved_memory.relationships)} relationships" if entity_retrieved_memory else "entity_retrieved_memory: None")
+        if message_retrieved_memory:
+            logger.info(f"""message_retrieved_memory:
+                        {len(message_retrieved_memory.nodes)} nodes,
+                        {len(message_retrieved_memory.relationships)} relationships""")
+        else:
+            logger.info("message_retrieved_memory: None")
+        if entity_retrieved_memory:
+            logger.info(f"""entity_retrieved_memory:
+                        {len(entity_retrieved_memory.nodes)} nodes,
+                        {len(entity_retrieved_memory.relationships)} relationships""")
 
         # ①②の結果を統合し、retrieved_memory(short_memoryにつながる)に格納する。
         nodes = set()
@@ -288,7 +311,8 @@ class StreamChatClient():
             nodes = set(entity_retrieved_memory.nodes)
             relationships = set(entity_retrieved_memory.relationships)
         self.retrieved_memory = Triplets(nodes=list(nodes), relationships=list(relationships))
-        logger.info(f"retrieved_memory: {len(self.retrieved_memory.nodes)} nodes, {len(self.retrieved_memory.relationships)} relationships")
+        logger.info(f"""retrieved_memory: {len(self.retrieved_memory.nodes)} nodes,
+                    {len(self.retrieved_memory.relationships)} relationships""")
 
         # tripletsとMessage_nodeを別々のデータとしてwebsocketに送信
         if self.retrieved_memory:
@@ -303,7 +327,7 @@ class StreamChatClient():
         depth = self.short_memory_depth - 1 if self.short_memory_depth > 1 else 1
 
         # ベクトル検索したmessageを最大k個取得する
-        messages = await query_messages(query=text, **kwargs)
+        messages = await self.db.query_messages(query=text, **kwargs)
 
         # Messageのuser_input_nameから、entity名を抽出する。
         entities = set()

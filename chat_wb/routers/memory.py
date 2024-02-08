@@ -1,63 +1,67 @@
 from logging import getLogger
-from chat_wb.neo4j.memory import (get_messages, get_titles, query_messages, create_and_update_title,
-                                  get_latest_messages, pursue_node_update_history)
-from chat_wb.neo4j.triplet import TripletsConverter
+from fastapi import APIRouter, Body, Depends, HTTPException
+from chat_wb.neo4j import Neo4jDriverManager as driver, Neo4jMemoryService, TripletsConverter
 from chat_wb.models import remove_suffix
-from fastapi import APIRouter, Body
 from chat_wb.models import Triplets, ShortMemory, Relationship
 
 memory_router = APIRouter()
 
 # ロガー設定
 logger = getLogger(__name__)
+# def get_node_labels(cache: Neo4jCacheManager = Depends(driver.get_neo4j_cache_manager)) -> list[str]:
 
 
-@memory_router.get("/get_messages", tags=["memory"])
-def get_messages_api(title: str, n: int = 100):
-    messages = get_messages(title, n)
-    return messages
+@memory_router.get("/get_messages", tags=["message"])
+def get_messages(scene: str, n: int = 100,
+                 db: Neo4jMemoryService = Depends(driver.get_neo4j_memory_service)):
+    return db.get_messages(scene, n)
 
 
-@memory_router.get("/get_titles", tags=["memory"])
-def get_titles_api():
-    return get_titles()
+@memory_router.get("/get_scenes", tags=["scene"])
+def get_scenes(db: Neo4jMemoryService = Depends(driver.get_neo4j_memory_service)):
+    return db.get_scenes()
 
 
 # [TODO] MessageからのContainリレーションシップを作成する
-@memory_router.get("/get_latest_messages/{title}/{n}", tags=["memory"])
-def get_latest_messages_api(title: str, n: int = 7) -> Triplets | None:
+@memory_router.get("/get_latest_messages/{scene}/{n}", tags=["message"])
+def get_latest_messages(scene: str, n: int = 7,
+                        db: Neo4jMemoryService = Depends(driver.get_neo4j_memory_service)) -> Triplets | None:
     """指定したタイトルの最新n件のメッセージを取得し、関連するEntityと閉じたリレーションシップを取得する。"""
-    return get_latest_messages(title, n)
+    return db.get_latest_messages(scene, n)
 
 
-@memory_router.post("/store_memory_from_triplet", tags=["memory"])
-async def store_memory_from_triplet_api(text: str):
+@memory_router.post("/store_memory_from_triplet", tags=["triplet"])
+async def store_memory_from_triplet(text: str):
     converter = TripletsConverter()
     triplets = await converter.run_sequences(text)
     return await converter.store_memory_from_triplet(triplets)
 
 
-@memory_router.post("/create_and_update_title", tags=["memory"])
-async def create_and_update_title_api(title: str = Body(...), new_title: str | None = Body(None)):
-    return await create_and_update_title(title, new_title)
+@memory_router.post("/create_and_update_scene", tags=["scene"])
+def create_and_update_scene(scene: str, new_scene: str | None = None,
+                            db: Neo4jMemoryService = Depends(driver.get_neo4j_memory_service)):
+    return db.create_and_update_scene(scene, new_scene)
 
 
-@memory_router.get("/retrieve_entity", tags=["memory"])
-async def retrieve_entity_api(text: str):
+@memory_router.get("/retrieve_entity", tags=["message"])
+async def retrieve_entity(text: str,
+                          db: Neo4jMemoryService = Depends(driver.get_neo4j_memory_service)):
     """ラベル無しでnameのみから、一次リレーションまでとノードプロパティを得る。"""
     user_input_entity = await TripletsConverter().extract_entites(text)
     logger.info(f"user_input_entity: {user_input_entity}")
     entities = []
     for entity in user_input_entity:
         entities.append(remove_suffix(entity))
-    # return await get_node_relationships(names=entities)   # [TODO] Neo4jDataManagerを継承する
+    return await db.get_node_relationships(names=entities)
 
 
-@memory_router.get("/query_messages", tags=["memory"])
-async def query_messages_api(query: str):
-    return await query_messages(query)
+@memory_router.get("/query_messages", tags=["message"])
+async def query_messages(query: str,
+                         db: Neo4jMemoryService = Depends(driver.get_neo4j_memory_service)):
+    return await db.query_messages(query)
 
 
-@memory_router.get("/pursue_node_update_history", tags=["memory"])
-async def pursue_node_update_history_api(label: str, name: str):
-    return await pursue_node_update_history(label, name)
+@memory_router.get("/pursue_node_update_history", tags=["message"])
+async def pursue_node_update_history(label: str, name: str,
+                                     db: Neo4jMemoryService = Depends(driver.get_neo4j_memory_service)):
+    return await db.pursue_node_update_history(label, name)
