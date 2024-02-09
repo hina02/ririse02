@@ -1,0 +1,1 @@
+# [TODO] baseのchat logicを実装する。これを継承して、stream chat logicを実装する。
