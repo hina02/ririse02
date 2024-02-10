@@ -136,7 +136,7 @@ async def delete_relationship(
 @neo4j_router.put("/integrate_nodes/{label1}/{name1}/{label2}/{name2}", tags=["node"])
 async def integrate_nodes(
     label1: str, name1: str, label2: str, name2: str, db: Neo4jNodeIntegrator = Depends(driver.get_neo4j_node_integrator)
-):
+) -> None:
     """integrate nodes by name variations, properties, and relationships to node1. For secure, separate the delete node2 process."""
     node1 = Node(label=label1, name=name1, properties={})
     node2 = Node(label=label2, name=name2, properties={})

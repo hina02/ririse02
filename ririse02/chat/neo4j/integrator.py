@@ -1,5 +1,7 @@
 from logging import getLogger
 
+from neo4j import Transaction
+
 from ..models import Node
 from .base import Neo4jDataManager
 
@@ -10,48 +12,50 @@ logger = getLogger(__name__)
 # Integrate name variations of two nodes
 class Neo4jNodeIntegrator(Neo4jDataManager):
 
-    def integrate_nodes(self, node1: Node, node2: Node):
+    async def integrate_nodes(self, node1: Node, node2: Node) -> None:
         """Integrate 2 nodes by name variations, properties, and relationships to node1. For secure, separate the delete process."""
         # check nodes exist
-        match_nodes1 = self.get_node(node1)
-        node1 = match_nodes1 if match_nodes1 else None
-        match_nodes2 = self.get_node(node2)
-        node2 = match_nodes2 if match_nodes2 else None
-        if not node1 or not node2:
-            logger.info(f"Node {{{node1.label}:{node1.name}}} or {{{node2.label}:{node2.name}}} not found.")
-            return
+        async with self.driver.session(database=self.database) as session:
+            matched_node1 = await session.execute_read(self.get_node, node1)
+            matched_node2 = await session.execute_read(self.get_node, node2)
 
-        # main process
-        integrated_props = self.integrate_node_names(node1, node2)
-        node1.properties = integrated_props
-        name_variation = integrated_props["name_variation"]
-        logger.info(f"Integrated node name variation: {name_variation}")
+            if not matched_node1 or not matched_node2:
+                logger.info(
+                    f"Node {None if matched_node1 else node1.to_cypher()} {None if matched_node2 else node2.to_cypher()} does not exist."
+                )
+                return
+            node1 = matched_node1
+            node2 = matched_node2
 
-        properties = self.integrate_node_properties(node1, node2)
-        logger.info(f"Integrated node properties: {properties}")
+            # main process
+            name_variation = await session.execute_write(self.integrate_node_names, node1, node2)
+            node1.properties["name_variation"] = name_variation
+            logger.info(f"Integrated node name variation: {name_variation}")
 
-        self.integrate_relationships(node1, node2)
-        logger.info("Integrated node relationships")
+            properties = await session.execute_write(self.integrate_node_properties, node1, node2)
+            logger.info(f"Integrated node properties: {properties}")
 
-    def integrate_node_names(self, node1: Node, node2: Node) -> list[str]:
+            await session.execute_write(self.integrate_relationships, node1, node2)
+            logger.info("Integrated node relationships")
+
+    async def integrate_node_names(self, tx: Transaction, node1: Node, node2: Node) -> list[str]:
         """Integrate name and name variations of 2 nodes to node1."""
-        query = """
-                MATCH (n1), (n2)
-                WHERE id(n1) = $node1_id AND id(n2) = $node2_id
+        query = f"""
+                MATCH (n1:{node1.label}{{name: $name1}}), (n2:{node2.label}{{name: $name2}})
                 SET n1.name_variation = CASE
-                    WHEN n1.name_variation IS NULL AND n2.name_variation IS NULL THEN [n1.name, n2.name]
-                    WHEN n1.name_variation IS NULL THEN apoc.coll.toSet([n1.name, n2.name] + n2.name_variation)
-                    WHEN n2.name_variation IS NULL THEN apoc.coll.toSet(n1.name_variation + [n1.name, n2.name])
-                    ELSE apoc.coll.toSet(n1.name_variation + [n1.name, n2.name] + n2.name_variation)
+                    WHEN n1.name_variation IS NULL AND n2.name_variation IS NULL THEN [n2.name]
+                    WHEN n1.name_variation IS NULL THEN apoc.coll.toSet([n2.name] + n2.name_variation)
+                    WHEN n2.name_variation IS NULL THEN apoc.coll.toSet(n1.name_variation + [n2.name])
+                    ELSE apoc.coll.toSet(n1.name_variation + [n2.name] + n2.name_variation)
                 END
-                RETURN properties(n1) AS properties
+                RETURN n1.name_variation AS name_variation
                 """
-        params = {"node1_id": node1.id, "node2_id": node2.id}
-        with self.driver.session() as session:
-            result = session.run(query, params).single()
-            return result["properties"]
+        params = {"name1": node1.name, "name2": node2.name}
+        result = await tx.run(query, params)
+        record = await result.single()
+        return record["name_variation"]
 
-    def integrate_node_properties(self, node1: Node, node2: Node) -> dict[str, list[str]]:
+    async def integrate_node_properties(self, tx: Transaction, node1: Node, node2: Node) -> dict[str, list[str]]:
         """Integrate properties of 2 nodes to node1."""
         props1 = node1.properties
         props2 = node2.properties
@@ -63,41 +67,35 @@ class Neo4jNodeIntegrator(Neo4jDataManager):
                     props1[key] = list(set(props1[key] + props2[key]))  # merge and deduplicate
                 elif key in props2:
                     props1[key] = props2[key]  # key only exists in props2
-        props1["name"] = node1.name  # keep the original name
+        props1["name"] = node1.name  # add name as string
 
-        query = """
-                MATCH (n1)
-                WHERE id(n1) = $node1_id
+        query = f"""
+                MATCH (n1:{node1.label}{{name: $name}})
                 SET n1 = $props
                 RETURN properties(n1) AS properties
                 """
-        params = {"node1_id": node1.id, "props": props1}
+        params = {"name": node1.name, "props": props1}
 
-        with self.driver.session() as session:
-            result = session.run(query, params).single()
-            return result["properties"]
+        result = await tx.run(query, params)
+        record = await result.single()
+        return record["properties"]
 
-    def integrate_relationships(self, node1: Node, node2: Node):
+    async def integrate_relationships(self, tx: Transaction, node1: Node, node2: Node) -> None:
         """Integrate relationships of 2 nodes to node1."""
-        query1 = """
-                MATCH (n2)-[r]->(m)
-                WHERE id(n2) = $node2_id
-                MATCH (n1)
-                WHERE id(n1) = $node1_id
+        query1 = f"""
+                MATCH (n2:{node2.label}{{name:$name2}})-[r]->(m)
+                MATCH (n1:{node1.label}{{name:$name1}})
                 CALL apoc.refactor.from(r, n1)
                 YIELD input, output
                 RETURN output
                 """
-        query2 = """
-                MATCH (n2)<-[r]-(m)
-                WHERE id(n2) = $node2_id
-                MATCH (n1)
-                WHERE id(n1) = $node1_id
+        query2 = f"""
+                MATCH (n2:{node2.label}{{name:$name2}})<-[r]-(m)
+                MATCH (n1:{node1.label}{{name:$name1}})
                 CALL apoc.refactor.to(r, n1)
                 YIELD input, output
                 RETURN output
                 """
-        params = {"node1_id": node1.id, "node2_id": node2.id}
-        with self.driver.session() as session:
-            session.run(query1, params)
-            session.run(query2, params)
+        params = {"name1": node1.name, "name2": node2.name}
+        await tx.run(query1, params)
+        await tx.run(query2, params)

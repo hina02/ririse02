@@ -30,28 +30,22 @@ class Neo4jDataManager:
         record = await result.single()
         return convert_neo4j_node_to_model(record["n"]) if record else None
 
+    # [HACK] label, nameが一意であることを前提とする。merge on matchの形式では、propertiesの複雑な処理が不可能なため、クエリを分割
     async def create_update_node(self, node: Node) -> None:
         async with self.driver.session(database=self.database) as session:
-            # transaction
-            tx = await session.begin_transaction()
-            try:
-                result = await self.get_node(tx, node)
-                if result:
-                    # [HACK] label, nameが一意であることを前提とする
-                    # merge on matchの形式では、propertiesの複雑な処理が不可能なため、クエリを分割
-                    if node.properties:
-                        await self.update_node(tx, result, node.properties)  # match node and new properties
-                        logger.info(f"Updated node {result.to_cypher()}")
-                    else:
-                        pass
+            # check if node exists
+            result = await session.execute_read(self.get_node, node)
+            # update properties
+            if result:
+                if node.properties:
+                    await session.execute_write(self.update_node, result, node.properties)
+                    logger.info(f"Updated node {result.to_cypher()}")
                 else:
-                    await self.create_node(tx, node)
-                    logger.info(f"Created node {node.to_cypher()}")
-
-                await tx.commit()
-            except Exception as e:
-                logger.error(e)
-                tx.rollback()
+                    pass
+            # create new node
+            else:
+                await session.execute_write(self.create_node, node)
+                logger.info(f"Created node {node.to_cypher()}")
 
     async def update_node(self, tx: Transaction, node: Node, properties: dict[str, list[str]]) -> None:
         """if node and properties, append node properties without overwrite."""
@@ -163,14 +157,20 @@ class Neo4jDataManager:
         return relationships
 
     async def match_relationship(self, tx: Transaction, relationship: Relationship) -> Relationship | None:
-        """check if relationship exists and return it."""
+        """check if same type relationship exists and return it."""
+        type = relationship.type
+        label1 = relationship.start_node_label
+        name1 = relationship.start_node
+        label2 = relationship.end_node_label
+        name2 = relationship.end_node
+
         query = f"""
-                MATCH (a:{relationship.start_node_label})-[r:{relationship.type}]->(b:{relationship.end_node_label})
+                MATCH (a:{label1})-[r:{type}]->(b:{label2})
                 WHERE ($name1 IN a.name_variation OR a.name = $name1)
                     AND ($name2 IN b.name_variation OR b.name = $name2)
                 RETURN a, r, b
                 """
-        params = {"name1": relationship.start_node, "name2": relationship.end_node}
+        params = {"name1": name1, "name2": name2}
         # transaction
         result = await tx.run(query, params)
         record = await result.single()
@@ -183,59 +183,70 @@ class Neo4jDataManager:
         relation type not match : ①between ②merge relationship
         """
         async with self.driver.session(database=self.database) as session:
-            # transaction
-            tx = await session.begin_transaction()
-            try:
-                match = await self.match_relationship(tx, relationship)
-                # if match, update properties
-                if match:
-                    if relationship.properties:
-                        await self.update_relationship(tx, relationship)
-                        logger.info(f"Relationship {relationship.to_cypher()} updated.")
-                    else:
-                        pass
-                # if not match, create new relationship
+            # check if same type relationship exists
+            match = await session.execute_read(self.match_relationship, relationship)
+            # update properties
+            if match:
+                if relationship.properties:
+                    relationship.start_node = match.start_node  # 正確なノード名に更新
+                    relationship.end_node = match.end_node
+                    await session.execute_write(self.update_relationship, relationship)
+                    logger.info(f"Relationship {relationship.to_cypher()} updated.")
                 else:
-                    await self.create_relationship(tx, relationship)
-                    logger.info(f"Relationship {relationship.to_cypher()} created.")
-
-                await tx.commit()
-            except Exception as e:
-                logger.error(e)
-                tx.rollback()
-                await session.close()
+                    pass
+            # create new relationship
+            else:
+                await session.execute_write(self.create_relationship, relationship)
+                logger.info(f"Relationship {relationship.to_cypher()} created.")
 
     async def update_relationship(self, tx: Transaction, relationship: Relationship) -> None:
         # [TODO] Node同様にlist追加型を検討
-        query = """
-                MATCH ()-[r]->()
-                WHERE id(r) = $relationship_id
+        type = relationship.type
+        label1 = relationship.start_node_label
+        name1 = relationship.start_node
+        label2 = relationship.end_node_label
+        name2 = relationship.end_node
+
+        query = f"""
+                MATCH (a:{label1}{{name: $name1}})-[r:{type}]->(b:{label2}{{name: $name2}})
                 SET r += $properties
                 """
-        params = {"relationship_id": relationship.id, "properties": relationship.properties}
+        params = {"name1": name1, "name2": name2, "properties": relationship.properties}
         await tx.run(query, params)
 
     async def create_relationship(self, tx: Transaction, relationship: Relationship):
+        type = relationship.type
+        label1 = relationship.start_node_label
+        name1 = relationship.start_node
+        label2 = relationship.end_node_label
+        name2 = relationship.end_node
+
         query = f"""
-                MERGE (a:{relationship.start_node_label} {{name: $name1}})
+                MERGE (a:{label1} {{name: $name1}})
                 ON CREATE SET a.name_variation = CASE WHEN $name1 IN a.name_variation THEN a.name_variation ELSE [a.name] END
-                MERGE (b:{relationship.end_node_label} {{name: $name2}})
+                MERGE (b:{label2} {{name: $name2}})
                 ON CREATE SET b.name_variation = CASE WHEN $name2 IN b.name_variation THEN b.name_variation ELSE [b.name] END
-                MERGE (a)-[r:{relationship.type}]->(b)
+                MERGE (a)-[r:{type}]->(b)
                 ON CREATE SET r = $properties
                 """
-        params = {"name1": relationship.start_node, "name2": relationship.end_node, "properties": relationship.properties}
+        params = {"name1": name1, "name2": name2, "properties": relationship.properties}
 
         await tx.run(query, params)
 
     async def delete_relationship(self, relationship: Relationship) -> None:
+        type = relationship.type
+        label1 = relationship.start_node_label
+        name1 = relationship.start_node
+        label2 = relationship.end_node_label
+        name2 = relationship.end_node
+
         query = f"""
-                MATCH (a:{relationship.start_node_label})-[r:{relationship.type}]->(b:{relationship.end_node_label})
+                MATCH (a:{label1})-[r:{type}]->(b:{label2})
                 WHERE ($name1 IN a.name_variation OR a.name = $name1) AND ($name2 IN b.name_variation OR b.name = $name2)
                 DELETE r
                 RETURN count(r) as count
                 """
-        params = {"name1": relationship.start_node, "name2": relationship.end_node}
+        params = {"name1": name1, "name2": name2}
         async with self.driver.session(database=self.database) as session:
             result = await session.run(query, params)
             record = await result.single()
