@@ -10,8 +10,9 @@ from ..models import Node, Relationship
 class Neo4jCacheManager:
     """Manage cache data and direct database access for Neo4j."""
 
-    def __init__(self, driver: Driver, cache_dir="./cache"):
+    def __init__(self, driver: Driver, database: str = "neo4j", cache_dir="./cache"):
         self.driver = driver
+        self.database = database
         self.cache = Cache(directory=cache_dir)
         self.expire = 86400  # 1day = 86400sec
 

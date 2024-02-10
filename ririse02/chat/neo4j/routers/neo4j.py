@@ -14,6 +14,7 @@ neo4j_router = APIRouter()
 
 
 # Neo4jCacheManager
+# lables
 @neo4j_router.get("/node_labels", tags=["cache"])
 def get_node_labels(cache: Neo4jCacheManager = Depends(driver.get_neo4j_cache_manager)) -> list[str]:
     """get all node labels"""
@@ -34,6 +35,7 @@ def get_label_and_relationship_type_sets(
     return cache.get_label_and_relationship_type_sets()
 
 
+# labels and names
 @neo4j_router.get("/node_names/{label}", tags=["cache"])
 def get_node_names(label: str, cache: Neo4jCacheManager = Depends(driver.get_neo4j_cache_manager)) -> list[str]:
     """get all node names in the label"""
@@ -54,8 +56,14 @@ def get_all_relationships(cache: Neo4jCacheManager = Depends(driver.get_neo4j_ca
 
 # Neo4jDataManager
 # Node
+@neo4j_router.post("/create_update_node", tags=["node"])
+async def create_update_node(node: Node = Body(...), db: Neo4jDataManager = Depends(driver.get_neo4j_data_manager)) -> None:
+    """create or update node"""
+    return await db.create_update_node(node=node)
+
+
 @neo4j_router.get("/get_node/{label}/{name}", tags=["node"])
-async def get_node(label: str, name: str, db: Neo4jDataManager = Depends(driver.get_neo4j_data_manager)):
+async def get_node(label: str, name: str, db: Neo4jDataManager = Depends(driver.get_neo4j_data_manager)) -> Node | None:
     """get node by label and name"""
     node = Node(label=label, name=name, properties={})
     async with db.driver.session(database="neo4j") as session:
@@ -65,39 +73,39 @@ async def get_node(label: str, name: str, db: Neo4jDataManager = Depends(driver.
 
 
 @neo4j_router.delete("/delete_node/{label}/{name}", tags=["node"])
-async def delete_node(label: str, name: str, db: Neo4jDataManager = Depends(driver.get_neo4j_data_manager)):
+async def delete_node(label: str, name: str, db: Neo4jDataManager = Depends(driver.get_neo4j_data_manager)) -> None:
     """delete node by label and name"""
     return await db.delete_node(node=Node(label=label, name=name, properties={}))
 
 
-# create node
-@neo4j_router.post("/create_update_node", tags=["node"])
-async def create_update_node(node: Node = Body(...), db: Neo4jDataManager = Depends(driver.get_neo4j_data_manager)):
-    """create or update node"""
-    return await db.create_update_node(node=node)
+# Relationship
+@neo4j_router.post("/create_update_relationship", tags=["relationship"])
+async def create_update_relationship(
+    relationship: Relationship = Body(...), db: Neo4jDataManager = Depends(driver.get_neo4j_data_manager)
+) -> None:
+    """create or update relationship"""
+    return await db.create_update_relationship(relationship)
 
 
-# get node relationship
-@neo4j_router.get("/get_node_relationships/{names}", tags=["relationship"])
-async def get_node_relationships(names: str, db: Neo4jDataManager = Depends(driver.get_neo4j_data_manager)):
+@neo4j_router.get("/get_node_relationships", tags=["relationship"])
+async def get_node_relationships(names: str, db: Neo4jDataManager = Depends(driver.get_neo4j_data_manager)) -> list[Relationship]:
     """get node relationships by name list"""
     try:
         names = json.loads(names)
         match names:
             case list() as lst:
                 triplets = await db.get_node_relationships(lst)
-                return triplets.relationships
+                return triplets.relationships if triplets else []
             case _:
                 raise HTTPException(status_code=400, detail="List expected. Invalid JSON format.")
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON format.")
 
 
-# between node1 and node2
 @neo4j_router.get("/get_node_relationships_between/{label1}/{name1}/{label2}/{name2}", tags=["relationship"])
 async def get_node_relationships_between(
     label1: str, name1: str, label2: str, name2: str, db: Neo4jDataManager = Depends(driver.get_neo4j_data_manager)
-):
+) -> list[Relationship]:
     """get relationships between node1 and node2"""
     node1 = Node(label=label1, name=name1, properties={})
     node2 = Node(label=label2, name=name2, properties={})
@@ -107,17 +115,10 @@ async def get_node_relationships_between(
     return relationships
 
 
-# update
-@neo4j_router.put("/create_update_relationship", tags=["relationship"])
-async def create_update_relationship(relationship: Relationship = Body(...), db: Neo4jDataManager = Depends(driver.get_neo4j_data_manager)):
-    """create or update relationship"""
-    return await db.create_update_relationship(relationship)
-
-
 @neo4j_router.delete("/delete_relationship/{label1}/{name1}/{label2}/{name2}/{relationship_type}", tags=["relationship"])
 async def delete_relationship(
     label1: str, name1: str, label2: str, name2: str, relationship_type: str, db: Neo4jDataManager = Depends(driver.get_neo4j_data_manager)
-):
+) -> None:
     """delete relationship"""
     return await db.delete_relationship(
         relationship=Relationship(

@@ -21,7 +21,6 @@ class Neo4jIndex(BaseModel):
 
 
 class Node(BaseModel):
-    id: str | None = None
     label: str
     name: str
     properties: dict[str, list[str]]
@@ -77,7 +76,6 @@ class Node(BaseModel):
 
 
 class Relationship(BaseModel):
-    id: str | None = None
     type: str
     start_node: str
     end_node: str

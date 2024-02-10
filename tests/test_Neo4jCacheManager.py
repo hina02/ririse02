@@ -11,7 +11,7 @@ def test_client():
     return TestClient(app)
 
 
-@pytest.mark.done
+@pytest.mark.neo4j
 class TestNeo4jCacheManagerRoutes:
     # テストクライアントを使用するためのfixtureをクラススコープで適用します
     @pytest.fixture(autouse=True)

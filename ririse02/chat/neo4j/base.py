@@ -11,8 +11,9 @@ logger = getLogger(__name__)
 
 
 class Neo4jDataManager:
-    def __init__(self, driver: AsyncDriver):
+    def __init__(self, driver: AsyncDriver, database: str = "neo4j"):
         self.driver = driver
+        self.database = database
 
     # Node
     async def get_node(self, tx: Transaction, node: Node) -> Node | None:
@@ -30,7 +31,7 @@ class Neo4jDataManager:
         return convert_neo4j_node_to_model(record["n"]) if record else None
 
     async def create_update_node(self, node: Node) -> None:
-        async with self.driver.session() as session:
+        async with self.driver.session(database=self.database) as session:
             # transaction
             tx = await session.begin_transaction()
             try:
@@ -99,7 +100,7 @@ class Neo4jDataManager:
                 """
         params = {"name": node.name}
 
-        async with self.driver.session() as session:
+        async with self.driver.session(database=self.database) as session:
             result = await session.run(query, params)
             record = await result.single()
             count = record.get("count")
@@ -126,7 +127,7 @@ class Neo4jDataManager:
                 """
         params = {"names": names, "depth": depth}
         start = datetime.now()
-        async with self.driver.session() as session:
+        async with self.driver.session(database=self.database) as session:
             result = await session.run(query, params)
             record = await result.single()
 
@@ -181,7 +182,7 @@ class Neo4jDataManager:
         relation type match no property : ①match
         relation type not match : ①between ②merge relationship
         """
-        async with self.driver.session() as session:
+        async with self.driver.session(database=self.database) as session:
             # transaction
             tx = await session.begin_transaction()
             try:
@@ -202,6 +203,7 @@ class Neo4jDataManager:
             except Exception as e:
                 logger.error(e)
                 tx.rollback()
+                await session.close()
 
     async def update_relationship(self, tx: Transaction, relationship: Relationship) -> None:
         # [TODO] Node同様にlist追加型を検討
@@ -215,8 +217,10 @@ class Neo4jDataManager:
 
     async def create_relationship(self, tx: Transaction, relationship: Relationship):
         query = f"""
-                MATCH (a:{relationship.start_node_label}), (b:{relationship.end_node_label})
-                WHERE ($name1 IN a.name_variation OR a.name = $name1) AND ($name2 IN b.name_variation OR b.name = $name2)
+                MERGE (a:{relationship.start_node_label} {{name: $name1}})
+                ON CREATE SET a.name_variation = CASE WHEN $name1 IN a.name_variation THEN a.name_variation ELSE [a.name] END
+                MERGE (b:{relationship.end_node_label} {{name: $name2}})
+                ON CREATE SET b.name_variation = CASE WHEN $name2 IN b.name_variation THEN b.name_variation ELSE [b.name] END
                 MERGE (a)-[r:{relationship.type}]->(b)
                 ON CREATE SET r = $properties
                 """
@@ -232,7 +236,7 @@ class Neo4jDataManager:
                 RETURN count(r) as count
                 """
         params = {"name1": relationship.start_node, "name2": relationship.end_node}
-        async with self.driver.session() as session:
+        async with self.driver.session(database=self.database) as session:
             result = await session.run(query, params)
             record = await result.single()
             count = record.get("count")

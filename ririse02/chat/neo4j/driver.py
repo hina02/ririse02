@@ -25,9 +25,11 @@ class Neo4jDriverManager:
         if config:
             # 接続キーを(config["uri"], config["username"])のタプルとして作成
             connection_key = (config["uri"], config["username"])
+            database = config.get("database", "neo4j")  # default 'neo4j'
             # キャッシュに接続が存在しない場合は新たに作成
             if connection_key not in cls.connection_cache:
-                cls.connection_cache[connection_key] = GraphDatabase.driver(config["uri"], auth=(config["username"], config["password"]))
+                driver = GraphDatabase.driver(config["uri"], auth=(config["username"], config["password"]))
+                cls.connection_cache[connection_key] = (driver, database)
             return cls.connection_cache[connection_key]
         else:
             raise Exception("Database configuration not found for user_id: {}".format(user_id))
@@ -38,11 +40,11 @@ class Neo4jDriverManager:
         if config:
             # 接続キーを(config["uri"], config["username"])のタプルとして作成
             connection_key = (config["uri"], config["username"])
+            database = config.get("database", "neo4j")  # default 'neo4j'
             # キャッシュに接続が存在しない場合は新たに作成
             if connection_key not in cls.async_connection_cache:
-                cls.connection_cache[connection_key] = AsyncGraphDatabase.driver(
-                    config["uri"], auth=(config["username"], config["password"])
-                )
+                driver = AsyncGraphDatabase.driver(config["uri"], auth=(config["username"], config["password"]))
+                cls.connection_cache[connection_key] = (driver, database)
             return cls.connection_cache[connection_key]
         else:
             raise Exception("Database configuration not found for user_id: {}".format(user_id))
@@ -51,26 +53,26 @@ class Neo4jDriverManager:
     # [TODO] user_id: Optional[str] = Header(None) でユーザーIDを取得する
     @classmethod
     def get_neo4j_data_manager(cls, user_id: str = "local") -> Neo4jDataManager:
-        driver = cls.get_asyncconnection(user_id)
-        return Neo4jDataManager(driver)
+        driver, database = cls.get_asyncconnection(user_id)
+        return Neo4jDataManager(driver, database)
 
     @classmethod
     def get_neo4j_cache_manager(cls, user_id: str = "local") -> Neo4jCacheManager:
         """Cache利用のため、同期処理Driverに接続"""
-        driver = cls.get_connection(user_id)
-        return Neo4jCacheManager(driver)
+        driver, database = cls.get_connection(user_id)
+        return Neo4jCacheManager(driver, database)
 
     @classmethod
     def get_neo4j_node_integrator(cls, user_id: str = "local") -> Neo4jNodeIntegrator:
-        driver = cls.get_asyncconnection(user_id)
-        return Neo4jNodeIntegrator(driver)
+        driver, database = cls.get_asyncconnection(user_id)
+        return Neo4jNodeIntegrator(driver, database)
 
     @classmethod
     def get_neo4j_memory_service(cls, user_id: str = "local") -> Neo4jMemoryService:
-        driver = cls.get_asyncconnection(user_id)
-        return Neo4jMemoryService(driver)
+        driver, database = cls.get_asyncconnection(user_id)
+        return Neo4jMemoryService(driver, database)
 
     @classmethod
     def get_neo4j_index_manager(cls, user_id: str = "local") -> Neo4jIndexManager:
-        driver = cls.get_asyncconnection(user_id)
-        return Neo4jIndexManager(driver)
+        driver, database = cls.get_asyncconnection(user_id)
+        return Neo4jIndexManager(driver, database)

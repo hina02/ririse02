@@ -18,8 +18,9 @@ class IndexType(Enum):
 
 
 class Neo4jIndexManager:
-    def __init__(self, driver: Driver):
+    def __init__(self, driver: Driver, database: str = "neo4j"):
         self.driver = driver
+        self.database = database
 
     def show_index(self, type: IndexType | None) -> list[str]:
         """Show Neo4j vector and return index name list.

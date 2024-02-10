@@ -1,3 +1,4 @@
+import time
 from logging import getLogger
 
 import neo4j
@@ -23,10 +24,8 @@ def convert_neo4j_node_to_model(node: neo4j.graph.Node) -> Node | None:
         properties = {}
     else:
         name = properties.pop("name")
-
     try:
         return Node(
-            id=node.element_id,
             label=label,
             name=name,
             properties=properties,
@@ -44,7 +43,6 @@ def convert_neo4j_relationship_to_model(relationship: neo4j.graph.Relationship) 
     if start_node_name and end_node_name:
         properties = dict(relationship)
         return Relationship(
-            id=relationship.element_id,
             type=relationship.type,
             start_node=start_node_name,
             end_node=end_node_name,
@@ -57,7 +55,6 @@ def convert_neo4j_relationship_to_model(relationship: neo4j.graph.Relationship) 
 def convert_neo4j_message_to_model(node: neo4j.graph.Node) -> MessageNode | None:
     properties = dict(node)
     try:
-        properties["id"] = node.element_id
         # convert user_input_entity to Triplets
         user_input_entity = properties.pop("user_input_entity", None)
         user_input_entity = Triplets.model_validate_json(user_input_entity) if user_input_entity else None
@@ -73,7 +70,6 @@ def convert_neo4j_message_to_model(node: neo4j.graph.Node) -> MessageNode | None
 def convert_neo4j_scene_to_model(node: neo4j.graph.Node) -> SceneNode | None:
     properties = dict(node)
     try:
-        properties["id"] = node.element_id
         # convert to datetime
         properties["create_time"] = properties["create_time"].to_native()
         properties["update_time"] = properties["update_time"].to_native()
@@ -104,3 +100,14 @@ def get_embedding(text: str, model: str = "text-embedding-ada-002") -> list[floa
     text = text.replace("\n", " ")
     result = client.embeddings.create(input=[text], model=model).data[0].embedding
     return result
+
+
+def atimer(func):
+    async def wrapper(*args, **kwargs):
+        start_time = time.time()
+        result = await func(*args, **kwargs)
+        end_time = time.time()
+        logger.info(f"{func.__name__} Time: {round(end_time - start_time, 5)} seconds")
+        return result
+
+    return wrapper
