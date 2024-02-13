@@ -1,11 +1,12 @@
 import time
 from logging import getLogger
+from typing import Union
 
 import neo4j
 from openai import OpenAI
 from pydantic import ValidationError
 
-from ..models import MessageNode, Node, Relationship, SceneNode, Triplets
+from ..models import DocumentNode, MessageNode, Node, Relationship, SceneNode, TopicNode
 
 # ロガー設定
 logger = getLogger(__name__)
@@ -37,9 +38,15 @@ def convert_neo4j_node_to_model(node: neo4j.graph.Node) -> Node | None:
 
 def convert_neo4j_relationship_to_model(relationship: neo4j.graph.Relationship) -> Relationship | None:
     start_node_name = (
-        relationship.start_node.get("name") or relationship.start_node.get("user_input") or relationship.start_node.get("scene")
+        relationship.start_node.get("name")
+        or relationship.start_node.get("user_input")
+        or relationship.start_node.get("scene")
     )
-    end_node_name = relationship.end_node.get("name") or relationship.end_node.get("user_input") or relationship.end_node.get("scene")
+    end_node_name = (
+        relationship.end_node.get("name")
+        or relationship.end_node.get("user_input")
+        or relationship.end_node.get("scene")
+    )
     if start_node_name and end_node_name:
         properties = dict(relationship)
         return Relationship(
@@ -52,30 +59,29 @@ def convert_neo4j_relationship_to_model(relationship: neo4j.graph.Relationship) 
         )
 
 
-def convert_neo4j_message_to_model(node: neo4j.graph.Node) -> MessageNode | None:
+def convert_neo4j_system_node_to_model(
+    label: str,
+    node: dict,
+) -> Union[SceneNode, TopicNode, MessageNode, DocumentNode, None]:
     properties = dict(node)
+
+    # timestampは必ず存在する
+    timestamp = properties.pop("timestamp").to_native()
+    # end_timeが存在する場合は変換、そうでなければNoneを使用
+    end_time = properties.pop("end_time").to_native() if "end_time" in properties else None
+
     try:
-        # convert user_input_entity to Triplets
-        user_input_entity = properties.pop("user_input_entity", None)
-        user_input_entity = Triplets.model_validate_json(user_input_entity) if user_input_entity else None
-        # convert create_time to datetime
-        properties["create_time"] = properties["create_time"].to_native()
-        # convert to MessageNode
-        return MessageNode(**properties, user_input_entity=user_input_entity)
-    except (KeyError, ValidationError) as e:
-        logger.error(e)
-        return None
-
-
-def convert_neo4j_scene_to_model(node: neo4j.graph.Node) -> SceneNode | None:
-    properties = dict(node)
-    try:
-        # convert to datetime
-        properties["create_time"] = properties["create_time"].to_native()
-        properties["update_time"] = properties["update_time"].to_native()
-        # convert to SceneNode
-
-        return SceneNode(**properties)
+        match label:
+            case "Scene":
+                return SceneNode(timestamp=timestamp, end_time=end_time, **properties)
+            case "Topic":
+                return TopicNode(timestamp=timestamp, **properties)
+            case "Message":
+                return MessageNode(timestamp=timestamp, **properties)
+            case "Document":
+                return DocumentNode(timestamp=timestamp, **properties)
+            case _:
+                return None
     except (KeyError, ValidationError) as e:
         logger.error(e)
         return None

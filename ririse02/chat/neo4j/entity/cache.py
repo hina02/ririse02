@@ -3,10 +3,9 @@ from collections import defaultdict
 from diskcache import Cache
 from neo4j import Driver
 
-from ..models import Node, Relationship
+from ...models import Node, Relationship
 
 
-# [TODO]　非同期処理ではキャッシュが難しいため、ここはDriverを使って同期処理を行うのが良いかもしれない
 class Neo4jCacheManager:
     """Manage cache data and direct database access for Neo4j."""
 

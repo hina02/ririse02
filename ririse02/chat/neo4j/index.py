@@ -17,10 +17,33 @@ class IndexType(Enum):
     VECTOR = "VECTOR"
 
 
+# [TODO] 一部のindex(Person.name)を、CONSTRAINTに変更する。
 class Neo4jIndexManager:
     def __init__(self, driver: Driver, database: str = "neo4j"):
         self.driver = driver
         self.database = database
+
+    # Check main logic index and create if not exists.
+    # [TODO]　初期ロジックとして、これを呼び出して実行する。（どこにするかは検討）
+    def check_index(self) -> list[str]:
+        """Check Neo4j vector index and create index if not exists."""
+        vector_index = self.show_index(type="VECTOR")
+        if vector_index:
+            return vector_index
+        else:
+            # create main logic indices
+            self.create_vector_index("Scene")
+            self.create_vector_index("Document")
+            self.create_vector_index("Topic")
+            self.create_vector_index("Message")
+            self.create_node_index("RANGE", "Message", "create_time")
+            self.create_node_index("RANGE", "Scene", "create_time")
+            self.create_node_index("Text", "Person", "name")
+            self.create_node_index("Text", "Person", "name_variation")
+            self.create_relationship_index("RANGE", "CONTAIN", "create_time")
+            # show index
+            indices = self.show_index()
+            return indices
 
     def show_index(self, type: IndexType | None) -> list[str]:
         """Show Neo4j vector and return index name list.

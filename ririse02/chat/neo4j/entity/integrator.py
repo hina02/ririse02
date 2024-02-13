@@ -2,18 +2,19 @@ from logging import getLogger
 
 from neo4j import Transaction
 
-from ..models import Node
-from .base import Neo4jDataManager
+from ...models import Node
+from .entity import Neo4jEntityManager
 
 # ロガー設定
 logger = getLogger(__name__)
 
 
 # Integrate name variations of two nodes
-class Neo4jNodeIntegrator(Neo4jDataManager):
+class Neo4jNodeIntegrator(Neo4jEntityManager):
 
     async def integrate_nodes(self, node1: Node, node2: Node) -> None:
-        """Integrate 2 nodes by name variations, properties, and relationships to node1. For secure, separate the delete process."""
+        """Integrate 2 nodes by name variations, properties, and relationships to node1.
+        For secure, separate the delete process."""
         # check nodes exist
         async with self.driver.session(database=self.database) as session:
             matched_node1 = await session.execute_read(self.get_node, node1)
@@ -21,7 +22,8 @@ class Neo4jNodeIntegrator(Neo4jDataManager):
 
             if not matched_node1 or not matched_node2:
                 logger.info(
-                    f"Node {None if matched_node1 else node1.to_cypher()} {None if matched_node2 else node2.to_cypher()} does not exist."
+                    f"""Node {None if matched_node1 else node1.to_cypher()}
+                             {None if matched_node2 else node2.to_cypher()} does not exist."""
                 )
                 return
             node1 = matched_node1
@@ -82,14 +84,15 @@ class Neo4jNodeIntegrator(Neo4jDataManager):
 
     async def integrate_relationships(self, tx: Transaction, node1: Node, node2: Node) -> None:
         """Integrate relationships of 2 nodes to node1."""
-        query1 = f"""
+        query = f"""
                 MATCH (n2:{node2.label}{{name:$name2}})-[r]->(m)
                 MATCH (n1:{node1.label}{{name:$name1}})
                 CALL apoc.refactor.from(r, n1)
                 YIELD input, output
                 RETURN output
-                """
-        query2 = f"""
+
+                UNION ALL
+
                 MATCH (n2:{node2.label}{{name:$name2}})<-[r]-(m)
                 MATCH (n1:{node1.label}{{name:$name1}})
                 CALL apoc.refactor.to(r, n1)
@@ -97,5 +100,4 @@ class Neo4jNodeIntegrator(Neo4jDataManager):
                 RETURN output
                 """
         params = {"name1": node1.name, "name2": node2.name}
-        await tx.run(query1, params)
-        await tx.run(query2, params)
+        await tx.run(query, params)

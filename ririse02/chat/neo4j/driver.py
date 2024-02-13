@@ -2,11 +2,11 @@ import os
 
 from neo4j import AsyncDriver, AsyncGraphDatabase, Driver, GraphDatabase
 
-from .base import Neo4jDataManager
-from .cache import Neo4jCacheManager
+from .entity.cache import Neo4jCacheManager
+from .entity.entity import Neo4jEntityManager
+from .entity.integrator import Neo4jNodeIntegrator
 from .index import Neo4jIndexManager
-from .integrator import Neo4jNodeIntegrator
-from .memory import Neo4jMemoryService
+from .message import Neo4jMessageManager
 
 USER_CONFIG_MAP = {
     "local": {"uri": os.environ["NEO4J_URI"], "username": "neo4j", "password": os.environ["NEO4J_PASSWORD"]},
@@ -49,12 +49,12 @@ class Neo4jDriverManager:
         else:
             raise Exception("Database configuration not found for user_id: {}".format(user_id))
 
-    # データベース接続情報を選択し、Neo4jDataManagerインスタンスを生成する依存性関数
+    # データベース接続情報を選択し、Neo4jEntityManagerインスタンスを生成する依存性関数
     # [TODO] user_id: Optional[str] = Header(None) でユーザーIDを取得する
     @classmethod
-    def get_neo4j_data_manager(cls, user_id: str = "local") -> Neo4jDataManager:
+    def get_neo4j_entity_manager(cls, user_id: str = "local") -> Neo4jEntityManager:
         driver, database = cls.get_asyncconnection(user_id)
-        return Neo4jDataManager(driver, database)
+        return Neo4jEntityManager(driver, database)
 
     @classmethod
     def get_neo4j_cache_manager(cls, user_id: str = "local") -> Neo4jCacheManager:
@@ -68,11 +68,11 @@ class Neo4jDriverManager:
         return Neo4jNodeIntegrator(driver, database)
 
     @classmethod
-    def get_neo4j_memory_service(cls, user_id: str = "local") -> Neo4jMemoryService:
+    def get_neo4j_message_manager(cls, user_id: str = "local") -> Neo4jMessageManager:
         driver, database = cls.get_asyncconnection(user_id)
-        return Neo4jMemoryService(driver, database)
+        return Neo4jMessageManager(driver, database)
 
     @classmethod
     def get_neo4j_index_manager(cls, user_id: str = "local") -> Neo4jIndexManager:
-        driver, database = cls.get_asyncconnection(user_id)
+        driver, database = cls.get_connection(user_id)
         return Neo4jIndexManager(driver, database)

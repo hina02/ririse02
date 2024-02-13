@@ -3,21 +3,23 @@ from logging import getLogger
 
 from neo4j import AsyncDriver, Transaction
 
-from ..models import Node, Relationship, Triplets
-from .utils import convert_neo4j_node_to_model, convert_neo4j_relationship_to_model
+from ...models import Node, Relationship, Triplets
+from ..utils import convert_neo4j_node_to_model, convert_neo4j_relationship_to_model
 
 # ロガー設定
 logger = getLogger(__name__)
 
 
-class Neo4jDataManager:
+class Neo4jEntityManager:
+    """Entity(Scene, Document, Topic, Message等のシステムノードに所属しないノード)ノードとリレーションシップの管理を行う。"""
+
     def __init__(self, driver: AsyncDriver, database: str = "neo4j"):
         self.driver = driver
         self.database = database
 
     # Node
     async def get_node(self, tx: Transaction, node: Node) -> Node | None:
-        """Scene, Messageを除く、指定したラベルのノードを取得する。
+        """指定したラベルのノードを取得する。
         他のクエリと組み合わせて使用されることが多いため、transactionとして作成。"""
         query = f"""
                 MATCH (n:{node.label})
@@ -74,18 +76,6 @@ class Neo4jDataManager:
         logger.info(f"Created node {node.to_cypher()}")
         await tx.run(query, params)
 
-    async def merge_node(self, tx: Transaction, node: Node) -> Node | None:
-        """merge node."""
-        query = f"""
-                MERGE (n:{node.label} {{name: $name}})
-                ON CREATE SET n += $properties
-                RETURN n
-                """
-        params = {"name": node.name, "properties": node.properties}
-        result = await tx.run(query, params)
-        record = await result.single()
-        return convert_neo4j_node_to_model(record["n"]) if record else None
-
     async def delete_node(self, node: Node):
         query = f"""
                 MATCH (n:{node.label} {{name: $name}})
@@ -102,6 +92,8 @@ class Neo4jDataManager:
 
     # Relationship
     # [HACK]ノードが増えてレスポンスが遅くなるようなら、一つのnameを受け取るクエリの非同期処理を検討する。
+    # [TODO]r*2..3にすることで2～3ホッブつまり、Entity（とそのリレーションシップ）のみを取り出せる。
+    # Node<-Message->Entity->Entity　これを、そのcharacterNodeのMemoryにできる。
     async def get_node_relationships(self, names: list[str], depth: int = 1) -> Triplets | None:
         query = f"""
                 MATCH (start)
@@ -156,6 +148,8 @@ class Neo4jDataManager:
                 relationships.append(relationship)
         return relationships
 
+    # [TODO]できるなら、Node, Node, Relationshipの組み合わせで返すようにする。
+    # 無理なら、Nodeを別にクエリする。
     async def match_relationship(self, tx: Transaction, relationship: Relationship) -> Relationship | None:
         """check if same type relationship exists and return it."""
         type = relationship.type
@@ -223,9 +217,15 @@ class Neo4jDataManager:
 
         query = f"""
                 MERGE (a:{label1} {{name: $name1}})
-                ON CREATE SET a.name_variation = CASE WHEN $name1 IN a.name_variation THEN a.name_variation ELSE [a.name] END
+                ON CREATE SET a.name_variation = CASE
+                    WHEN $name1 IN a.name_variation THEN a.name_variation
+                    ELSE [a.name]
+                    END
                 MERGE (b:{label2} {{name: $name2}})
-                ON CREATE SET b.name_variation = CASE WHEN $name2 IN b.name_variation THEN b.name_variation ELSE [b.name] END
+                ON CREATE SET b.name_variation = CASE
+                    WHEN $name2 IN b.name_variation THEN b.name_variation
+                    ELSE [b.name]
+                    END
                 MERGE (a)-[r:{type}]->(b)
                 ON CREATE SET r = $properties
                 """
@@ -242,7 +242,8 @@ class Neo4jDataManager:
 
         query = f"""
                 MATCH (a:{label1})-[r:{type}]->(b:{label2})
-                WHERE ($name1 IN a.name_variation OR a.name = $name1) AND ($name2 IN b.name_variation OR b.name = $name2)
+                WHERE ($name1 IN a.name_variation OR a.name = $name1)
+                AND ($name2 IN b.name_variation OR b.name = $name2)
                 DELETE r
                 RETURN count(r) as count
                 """

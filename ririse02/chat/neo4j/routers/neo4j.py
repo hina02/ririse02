@@ -4,9 +4,9 @@ from logging import getLogger
 from fastapi import APIRouter, Body, Depends, HTTPException
 
 from ...models import Node, Relationship
-from ..driver import Neo4jCacheManager, Neo4jDataManager
+from ..driver import Neo4jCacheManager
 from ..driver import Neo4jDriverManager as driver
-from ..driver import Neo4jNodeIntegrator
+from ..driver import Neo4jEntityManager, Neo4jNodeIntegrator
 
 logger = getLogger(__name__)
 
@@ -54,26 +54,30 @@ def get_all_relationships(cache: Neo4jCacheManager = Depends(driver.get_neo4j_ca
     return cache.get_all_relationships()
 
 
-# Neo4jDataManager
+# Neo4jEntityManager
 # Node
 @neo4j_router.post("/create_update_node", tags=["node"])
-async def create_update_node(node: Node = Body(...), db: Neo4jDataManager = Depends(driver.get_neo4j_data_manager)) -> None:
+async def create_update_node(
+    node: Node = Body(...), db: Neo4jEntityManager = Depends(driver.get_neo4j_entity_manager)
+) -> None:
     """create or update node"""
     return await db.create_update_node(node=node)
 
 
 @neo4j_router.get("/get_node/{label}/{name}", tags=["node"])
-async def get_node(label: str, name: str, db: Neo4jDataManager = Depends(driver.get_neo4j_data_manager)) -> Node | None:
+async def get_node(
+    label: str, name: str, db: Neo4jEntityManager = Depends(driver.get_neo4j_entity_manager)
+) -> Node | None:
     """get node by label and name"""
     node = Node(label=label, name=name, properties={})
-    async with db.driver.session(database="neo4j") as session:
+    async with db.driver.session(database=db.database) as session:
         # execute transaction
         result = await session.execute_read(db.get_node, node=node)
     return result
 
 
 @neo4j_router.delete("/delete_node/{label}/{name}", tags=["node"])
-async def delete_node(label: str, name: str, db: Neo4jDataManager = Depends(driver.get_neo4j_data_manager)) -> None:
+async def delete_node(label: str, name: str, db: Neo4jEntityManager = Depends(driver.get_neo4j_entity_manager)) -> None:
     """delete node by label and name"""
     return await db.delete_node(node=Node(label=label, name=name, properties={}))
 
@@ -81,14 +85,16 @@ async def delete_node(label: str, name: str, db: Neo4jDataManager = Depends(driv
 # Relationship
 @neo4j_router.post("/create_update_relationship", tags=["relationship"])
 async def create_update_relationship(
-    relationship: Relationship = Body(...), db: Neo4jDataManager = Depends(driver.get_neo4j_data_manager)
+    relationship: Relationship = Body(...), db: Neo4jEntityManager = Depends(driver.get_neo4j_entity_manager)
 ) -> None:
     """create or update relationship"""
     return await db.create_update_relationship(relationship)
 
 
 @neo4j_router.get("/get_node_relationships", tags=["relationship"])
-async def get_node_relationships(names: str, db: Neo4jDataManager = Depends(driver.get_neo4j_data_manager)) -> list[Relationship]:
+async def get_node_relationships(
+    names: str, db: Neo4jEntityManager = Depends(driver.get_neo4j_entity_manager)
+) -> list[Relationship]:
     """get node relationships by name list"""
     try:
         names = json.loads(names)
@@ -104,20 +110,27 @@ async def get_node_relationships(names: str, db: Neo4jDataManager = Depends(driv
 
 @neo4j_router.get("/get_node_relationships_between/{label1}/{name1}/{label2}/{name2}", tags=["relationship"])
 async def get_node_relationships_between(
-    label1: str, name1: str, label2: str, name2: str, db: Neo4jDataManager = Depends(driver.get_neo4j_data_manager)
+    label1: str, name1: str, label2: str, name2: str, db: Neo4jEntityManager = Depends(driver.get_neo4j_entity_manager)
 ) -> list[Relationship]:
     """get relationships between node1 and node2"""
     node1 = Node(label=label1, name=name1, properties={})
     node2 = Node(label=label2, name=name2, properties={})
-    async with db.driver.session(database="neo4j") as session:
+    async with db.driver.session(database=db.database) as session:
         # execute transaction
         relationships = await session.execute_read(db.get_node_relationships_between, node1=node1, node2=node2)
     return relationships
 
 
-@neo4j_router.delete("/delete_relationship/{label1}/{name1}/{label2}/{name2}/{relationship_type}", tags=["relationship"])
+@neo4j_router.delete(
+    "/delete_relationship/{label1}/{name1}/{label2}/{name2}/{relationship_type}", tags=["relationship"]
+)
 async def delete_relationship(
-    label1: str, name1: str, label2: str, name2: str, relationship_type: str, db: Neo4jDataManager = Depends(driver.get_neo4j_data_manager)
+    label1: str,
+    name1: str,
+    label2: str,
+    name2: str,
+    relationship_type: str,
+    db: Neo4jEntityManager = Depends(driver.get_neo4j_entity_manager),
 ) -> None:
     """delete relationship"""
     return await db.delete_relationship(
@@ -135,9 +148,14 @@ async def delete_relationship(
 # integrate node
 @neo4j_router.put("/integrate_nodes/{label1}/{name1}/{label2}/{name2}", tags=["node"])
 async def integrate_nodes(
-    label1: str, name1: str, label2: str, name2: str, db: Neo4jNodeIntegrator = Depends(driver.get_neo4j_node_integrator)
+    label1: str,
+    name1: str,
+    label2: str,
+    name2: str,
+    db: Neo4jNodeIntegrator = Depends(driver.get_neo4j_node_integrator),
 ) -> None:
-    """integrate nodes by name variations, properties, and relationships to node1. For secure, separate the delete node2 process."""
+    """integrate nodes by name variations, properties, and relationships to node1.
+    For secure, separate the delete node2 process."""
     node1 = Node(label=label1, name=name1, properties={})
     node2 = Node(label=label2, name=name2, properties={})
     return await db.integrate_nodes(node1, node2)
