@@ -1,11 +1,14 @@
-from fastapi import APIRouter, WebSocket, Body, Form, BackgroundTasks
-from fastapi.responses import StreamingResponse
-from logging import getLogger
-import json
 import asyncio
-from chat_wb.main.wb import get_stream_chat_client, StreamChatClient
+import json
+from logging import getLogger
+
+from fastapi import APIRouter, BackgroundTasks, Body, Form, WebSocket
+from fastapi.responses import StreamingResponse
+
+from chat_wb.main.wb import StreamChatClient, get_stream_chat_client
+from chat_wb.models import Triplets, WebSocketInputData
 from chat_wb.neo4j.memory import get_messages, store_message
-from chat_wb.models import WebSocketInputData, Triplets
+from config import VOICEPEAK_PATH
 
 logger = getLogger(__name__)
 
@@ -19,7 +22,10 @@ async def websocket_endpoint(websocket: WebSocket):
     # クライアントからのJSONメッセージを待つ
     data = await websocket.receive_text()
     input_data = WebSocketInputData.model_validate_json(data)
-    with_voice = input_data.with_voice
+    if VOICEPEAK_PATH:
+        with_voice = input_data.with_voice
+    else:
+        with_voice = False
 
     # StreamChatClientを取得（input_dataを渡し、ここで、user_inputの更新も行う）
     client = await get_stream_chat_client(input_data)
@@ -29,8 +35,12 @@ async def websocket_endpoint(websocket: WebSocket):
     input_data.former_node_id = former_node_id
 
     # メイン処理    非同期タスクを開始
-    get_memory_task = asyncio.create_task(client.wb_get_memory(websocket))       # messageをベクタークエリし、関連するnode, relationshipを取得
-    store_memory_task = asyncio.create_task(client.wb_store_memory())   # user_input_entity, short_memory取得、保存
+    get_memory_task = asyncio.create_task(
+        client.wb_get_memory(websocket)
+    )  # messageをベクタークエリし、関連するnode, relationshipを取得
+    store_memory_task = asyncio.create_task(
+        client.wb_store_memory()
+    )  # user_input_entity, short_memory取得、保存
 
     # クエリの結果を待って、ストリーミングレスポンスを開始
     await get_memory_task
@@ -45,15 +55,18 @@ async def websocket_endpoint(websocket: WebSocket):
     message = await store_message(
         input_data=input_data,
         ai_response=client.ai_response,
-        user_input_entity=client.user_input_entity)
+        user_input_entity=client.user_input_entity,
+    )
 
     # memory_turn_overにより、Messageとretrieval_memoryをshort_memoryに格納し、一時的な要素をリセットする。
     client.close_chat(message)
 
     # websocketにshort_memory.triplets(nodes, relationshipsのset)を渡して、closeメッセージを送信する
-    message = {"type": "close",
-               "node_id": message.id,
-               "short_memory": client.short_memory.triplets.model_dump_json()}
+    message = {
+        "type": "close",
+        "node_id": message.id,
+        "short_memory": client.short_memory.triplets.model_dump_json(),
+    }
     await websocket.send_text(json.dumps(message))
 
     # websocketを閉じる
@@ -101,6 +114,6 @@ async def background_task(input_data: WebSocketInputData, client: StreamChatClie
     message = await store_message(
         input_data=input_data,
         ai_response=client.ai_response,
-        user_input_entity=client.user_input_entity
+        user_input_entity=client.user_input_entity,
     )
     client.close_chat(message)  # memory_turn_overにより、一時的な要素をリセットする。

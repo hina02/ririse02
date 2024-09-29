@@ -1,11 +1,15 @@
 # About this repository
-LLMの長期記憶として、Knowledge Graphを利用しようと試みたプロジェクトのバックエンドです。
-概要については、以下の動画及びSummaryを参照してください。
-実行には、ローカル或いはクラウドのNeo4jインスタンスと、.envファイル（OPENAI_API_KEY, NEO4J_URI, NEO4J_PASSWORD）が必要です。
+- LLMの長期記憶として、Knowledge Graphを利用しようと試みたプロジェクトのバックエンドです。
+- 概要については、以下の動画及びSummaryを参照してください。
+- 実行には、ローカル或いはクラウドのNeo4jインスタンスと、.envファイル（OPENAI_API_KEY, NEO4J_URI, NEO4J_PASSWORD）が必要です。
+- 音声合成には、VoicePeakを利用しています。音声合成を使用する場合は、.envファイルに、次のような環境変数を設定してください。
+VOICEPEAK_PATH=C:/Program Files/VOICEPEAK/voicepeak.exe
+- 実行コマンドは、 'poetry run uvicorn ririse02.main:app --reload'です。
+- フロントエンドは、[こちら](https://github.com/hina02/ririse02_sv)です。
 
 # Youtube Movie
-「グラフ型データベースで、AIに長期記憶を持たせてみた。」
-https://www.youtube.com/watch?v=RdZnC-dnM4c
+「グラフ型データベースで、AIに長期記憶を持たせてみた。」  
+https://www.youtube.com/watch?v=RdZnC-dnM4c  
 https://twitter.com/hina02limited/status/1744630084563259750
 
 # Brief Summary
@@ -32,3 +36,18 @@ https://twitter.com/hina02limited/status/1744630084563259750
 6. 実行時のログはこんな感じです。
 システムプロンプトに、ノードとリレーションシップのプロパティが渡されています。
 ![My Image](./images/ririse_tweet9.png)
+
+
+# API Reference
+## default
+- /output_json_to_neo4j : テキストをLLMに渡し、ナレッジグラフを出力します。（プロンプト調整用。LLMからの直接のレスポンスを返す。）
+- /run_sequences : テキストをLLMに渡し、ナレッジグラフのトリプレット（ノード、リレーションシップ）のJSONを出力します。
+
+## memory
+アプリケーションの会話関連のAPIです。
+
+## label
+Neo4jのラベル、リレーションシップタイプをまとめて取得するAPIです。
+
+## node
+Neo4jのノードのCRUD APIです。

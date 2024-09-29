@@ -1,15 +1,13 @@
 import asyncio
-import aioprocessing
-import os
-import uuid
 import subprocess
+import uuid
 from pathlib import Path
 
-VOICEPEAK_PATH = os.environ.get("VOICEPEAK_PATH")
+import aioprocessing
 
-VOICEPEAK_NARRATOR = {"彩澄りりせ": "Asumi Ririse",
-                      "彩澄しゅお": "Asumi Shuo"
-                      }
+from config import VOICEPEAK_PATH
+
+VOICEPEAK_NARRATOR = {"彩澄りりせ": "Asumi Ririse", "彩澄しゅお": "Asumi Shuo"}
 
 NARRATOR_SETTINGS = {
     "Asumi Shuo": {
@@ -19,7 +17,7 @@ NARRATOR_SETTINGS = {
         "fun": 0,
         "speed": 110,
         "pitch": 0,
-        "pose": 80
+        "pose": 80,
     },
     "Asumi Ririse": {
         "happy": 10,
@@ -28,9 +26,10 @@ NARRATOR_SETTINGS = {
         "fun": 10,
         "speed": 125,
         "pitch": 0,
-        "pose": 30
-    }
+        "pose": 30,
+    },
 }
+
 
 async def playVoicePeak(script: str, narrator: str = "彩澄りりせ"):
     """

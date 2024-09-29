@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel
 import uuid
 from logging import getLogger
-from openai import OpenAI, AsyncOpenAI
-from openai_api.chat import chat, async_chat
+
+from fastapi import APIRouter, Depends, Request
+from openai import AsyncOpenAI, OpenAI
+from pydantic import BaseModel
+
+from openai_api.chat import async_chat, chat
 from openai_api.jsonmode import output_json, output_json_to_neo4j
 from openai_api.visual import gpt4v
 
@@ -52,15 +54,11 @@ async def get_async_openai_client(request: Request):
     return clients[user_id].async_clinent
 
 
-@openai_api_router.get("/chat")
-def chat_api(
-    user_message: str, client: OpenAIClient = Depends(get_openai_client)
-) -> str:
+def chat_api(user_message: str, client: OpenAIClient = Depends(get_openai_client)) -> str:
     result = chat("initialize chat.", user_message, client)
     return result
 
 
-@openai_api_router.get("/async_chat")
 async def async_chat_api(
     user_message: str, k: int = 3, client: OpenAIClient = Depends(get_async_openai_client)
 ):
@@ -71,10 +69,7 @@ async def async_chat_api(
     return result
 
 
-@openai_api_router.get("/output_json")
-async def output_json_api(
-    user_message: str, client: OpenAIClient = Depends(get_openai_client)
-):
+async def output_json_api(user_message: str, client: OpenAIClient = Depends(get_openai_client)):
     result = output_json(user_message, client=client)
     return result  # DOCSで確認したい場合は、json.loads(result)
 
@@ -89,7 +84,6 @@ async def output_json_to_neo4j_api(
     return result
 
 
-@openai_api_router.post("/gpt4v")
 async def gpt4v_api(
     request: Gpt4vRequest,
     client: OpenAIClient = Depends(get_openai_client),
