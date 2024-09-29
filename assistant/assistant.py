@@ -1,15 +1,17 @@
+import json
+import os
+import time
+import uuid
+from logging import getLogger
+
 import requests
 from fastapi import Request
-import uuid
 from openai import OpenAI
 from openai.types.beta.assistant import Assistant  # アシスタントの型
 from openai.types.beta.thread import Thread  # スレッドの型
-from openai.types.beta.threads import ThreadMessage  # メッセージの型
-import os
-import time
-from logging import getLogger
-import json
-from assistant.models import MetadataModel, ThreadModel, MessageModel
+from openai.types.beta.threads import Message  # メッセージの型
+
+from assistant.models import MessageModel, MetadataModel, ThreadModel
 
 logger = getLogger(__name__)
 
@@ -30,6 +32,7 @@ def get_openai_client(request: Request) -> OpenAI:
 
     print(clients[user_id])
     return clients[user_id]
+
 
 # client.beta.assistants.filesは、fileをassistatnsに紐付ける。
 
@@ -116,7 +119,7 @@ class ThreadManager:
 
     def create_thread(self, metadata: MetadataModel) -> ThreadModel:
         thread = self.client.beta.threads.create(metadata=metadata)
-        
+
         # スレッドモデルを作成して保存
         thread_model = ThreadModel(
             thread_id=thread.id,
@@ -127,13 +130,13 @@ class ThreadManager:
         # スレッドモデルをJSON Lineファイルに保存
         with open("logging/thread_models.jsonl", "a") as f:
             f.write(json.dumps(thread_model.model_dump()) + "\n")
-    
+
         return thread_model
 
     def retrieve_thread(self, thread_id: str) -> Thread:
         thread = self.client.beta.threads.retrieve(thread_id)
         return thread
-    
+
     # thread_models.jsonlから、threadを削除する。
     def delete_thread(self, thread_id: str):
         with open("logging/thread_models.jsonl", "r") as f:
@@ -150,7 +153,7 @@ class ThreadManager:
                 f.write(line)
 
 
-def extract_message_model(message: ThreadMessage):
+def extract_message_model(message: Message):
     message_model = MessageModel(
         id=message.id,
         role=message.role,
@@ -186,9 +189,7 @@ class RunManager:
         return message.id
 
     def get_messages(self, **kwargs) -> list[MessageModel]:
-        messages = self.client.beta.threads.messages.list(
-            thread_id=self.thread_id, **kwargs
-        )
+        messages = self.client.beta.threads.messages.list(thread_id=self.thread_id, **kwargs)
         messages = [extract_message_model(message) for message in messages.data]
         self.details = messages
         return messages
