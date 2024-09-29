@@ -4,7 +4,8 @@
 - 実行には、ローカル或いはクラウドのNeo4jインスタンスと、.envファイル（OPENAI_API_KEY, NEO4J_URI, NEO4J_PASSWORD）が必要です。
 - 音声合成には、VoicePeakを利用しています。音声合成を使用する場合は、.envファイルに、次のような環境変数を設定してください。
 VOICEPEAK_PATH=C:/Program Files/VOICEPEAK/voicepeak.exe
-- 実行コマンドは、 'poetry run uvicorn ririse02.main:app --reload'です。
+- 初回起動時は、'poetry install'を実行してください。
+- 実行コマンドは、 'poetry run uvicorn main:app --reload'です。
 - フロントエンドは、[こちら](https://github.com/hina02/ririse02_sv)です。
 
 # Youtube Movie
