@@ -19,6 +19,7 @@ itsdangerous = "^2.1.2"
 python-multipart = "^0.0.6"
 tiktoken = "^0.5.1"
 pandas = "^2.1.4"
+neo4j-rust-ext = "^5.25.0.0"
 
 
 [build-system]
